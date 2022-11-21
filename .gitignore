@@ -41,3 +41,6 @@ vignettes/*.pdf
 
 # File with API secrets etc to keep from uploading to github
 config.R
+
+# Other
+.DS_Store

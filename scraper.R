@@ -58,4 +58,4 @@ if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activity_list", new_act
 
 streams_to_get <- c(activities_loaded, new_activities_to_load$id)[!c(activities_loaded, new_activities_to_load$id) %in% streams_loaded]
 
-walk(streams_to_get, ~get_stream_data(.x))
+walk(streams_to_get, ~get_stream_data(.x, display_map = T))

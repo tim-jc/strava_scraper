@@ -70,20 +70,18 @@ get_stream_data <- function(activity_id, display_map = F) {
   
 }
 
-draw_map <- function(activity_bbox, draw_bbox = F, show_virtual_rides = F) {
+draw_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride") {
   
   activity_id <- activity_bbox[[1]]
   bbox <- activity_bbox[[2]]
   
+  # Limit activity ids to those of the selected types
+  all_type_id <- tbl(con, "activity_list") %>% 
+    filter(type %in% activity_types) %>% 
+    pull(id)
   
-  if(!show_virtual_rides) {
-    virtual_id <- tbl(con, "activity_list")  %>% 
-      filter(type == "VirtualRide") %>% 
-      pull(id)
-    
-    activity_id <- activity_id[!activity_id %in% virtual_id]
-    
-  }
+  activity_id <- activity_id[activity_id %in% all_type_id]
+  
   
   streams <- tbl(con, "ride_streams") %>%
     select(id, lat, lng) %>% 
@@ -133,7 +131,7 @@ draw_map <- function(activity_bbox, draw_bbox = F, show_virtual_rides = F) {
 # activity ids so they can be daisy chained together. Simpler than having one mega function, and easier to build extra
 # filtering functionality later
 
-find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, start_years = NA, start_location = NA) {
+find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, start_years = NA, start_location = NA, min_distance = NA_real_) {
   
   # start_dates - vector of one or more dates
   # start_years - vector of one or more years
@@ -153,6 +151,10 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
     bbox_south <- start_location[2]
     bbox_east <- start_location[3]
     bbox_west <- start_location[4]
+    
+    if(bbox_north <= bbox_south) {stop(str_glue("North value supplied ({bbox_north}) must be greater that South value ({bbox_south})"))}
+    
+    if(bbox_east <= bbox_west) {stop(str_glue("East value supplied ({bbox_east}) must be greater that West value ({bbox_west})"))}
     
     activity_id <- tbl(con, "activity_list") %>%
       filter(lat <= bbox_north,
@@ -184,6 +186,15 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
       pull(id) %>% unique()
   }
   
+  # If minimum distance supplied
+  if(!is.na(min_distance)) {
+    activity_id <- tbl(con, "activity_list") %>% 
+      collect() %>% 
+      mutate(distance_miles = distance / 1609.34) %>% 
+      filter(distance_miles >=  min_distance,
+             id %in% activity_id) %>%
+      pull(id) %>% unique()
+  }
   
   if(all(!is.na(prev_bbox))) {
     if(is.list(prev_bbox)) {
@@ -221,6 +232,10 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
     bbox_south <- visiting_location[2]
     bbox_east <- visiting_location[3]
     bbox_west <- visiting_location[4]
+    
+    if(bbox_north <= bbox_south) {stop(str_glue("North value supplied ({bbox_north}) must be greater that South value ({bbox_south})"))}
+    
+    if(bbox_east <= bbox_west) {stop(str_glue("East value supplied ({bbox_east}) must be greater that West value ({bbox_west})"))}
     
     activity_id <- tbl(con, "ride_streams") %>%
       filter(lat <= bbox_north,

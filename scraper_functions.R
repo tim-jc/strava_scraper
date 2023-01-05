@@ -157,10 +157,10 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
     if(bbox_east <= bbox_west) {stop(str_glue("East value supplied ({bbox_east}) must be greater that West value ({bbox_west})"))}
     
     activity_id <- tbl(con, "activity_list") %>%
-      filter(lat <= bbox_north,
-             lat >= bbox_south,
-             lng <= bbox_east,
-             lng >= bbox_west,
+      filter(start_lat <= bbox_north,
+             start_lat >= bbox_south,
+             start_lng <= bbox_east,
+             start_lng >= bbox_west,
              id %in% activity_id) %>%
       pull(id) %>% unique()
     

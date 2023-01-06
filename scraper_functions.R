@@ -70,6 +70,86 @@ get_stream_data <- function(activity_id, display_map = F) {
   
 }
 
+find_activity_peaks <- function(activity_id,
+                                peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
+                                peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
+  
+  # Get stream for activity
+  stream_sql <- tbl(con, "ride_streams") %>% 
+    filter(id == activity_id) %>%
+    select(time, all_of(peaks_for)) %>% collect()
+  
+  # Get all time peaks
+  # Calculate best ever and best this year
+  activities <- tbl(con, "activity_list") %>%
+    select(id, start_date_local)
+  
+  peaks_sql <- tbl(con, "ride_peaks") %>% 
+    filter(peak > 0) %>% 
+    left_join(activities, by = "id") %>% 
+    collect()
+  
+  if(activity_id %in% peaks_sql$id) {
+    stop(str_glue("Activity ID {activity_id} has already had peaks calculated. Remove from SQL table if re-calculation needed."))
+  }
+  
+  # Need to remove power data from before I got a power meter (?2017)
+  best_peaks <- peaks_sql %>%
+    filter(year(start_date_local) == year(Sys.Date())) %>% 
+    mutate(peak_period = "Current year") %>% 
+    bind_rows(peaks_sql %>% mutate(peak_period = "All time")) %>% 
+    group_by(peak_period, metric, time_range) %>% 
+    slice_max(peak, n = 3, with_ties = F) %>% 
+    mutate(rank = rank(-peak))
+  
+  # Ensure a row present for every second of the entire activity (no data recorded when stopped)
+  # Then establish the width of any data gaps for later smoothing
+  # Large data gaps will mean bike stopped - values should be set to zero - but small gaps can be filled
+  peaks <- tibble(time = seq(0,max(stream_sql$time),1)) %>% 
+    left_join(stream_sql, by = "time") %>% 
+    pivot_longer(-time, names_to = "metric") %>% 
+    arrange(metric, time) %>% 
+    mutate(has_data = !is.na(value),
+           has_data_group_id = row_number(),
+           prev_has_data = lag(has_data),
+           has_data_group_id = case_when(is.na(prev_has_data) ~ has_data_group_id,
+                                 has_data != prev_has_data ~ has_data_group_id,
+                                 T ~ NA_integer_)) %>% 
+    fill(has_data_group_id, .direction = "down") %>% 
+    group_by(has_data_group_id) %>% 
+    mutate(gap_size = n(),
+           val2 = value) %>% 
+    ungroup() %>% 
+    fill(val2, .direction = "down") %>% 
+    mutate(value = case_when(is.na(value) & gap_size <= 10 ~ val2,
+                             is.na(value) ~ 0,
+                             T ~ value)) %>% 
+    select(-matches("has_data"), -gap_size, -val2) %>% 
+    nest(data = !metric) %>% 
+    crossing(time_range = peak_time_ranges) %>% 
+    mutate(id = activity_id,
+           time_range_means = map2(data, time_range, ~slide_dbl(.x$value, .f = mean, .after = (.y - 1), .complete = T)),
+           peak = map_dbl(time_range_means, ~max(., na.rm = T))) %>% 
+    select(id, metric, time_range, peak)
+  
+  # Compare peaks
+  peaks_compare <- best_peaks %>% 
+    left_join(peaks %>% select(metric, time_range, current_peak = peak)) %>% 
+    filter(current_peak > peak) %>% 
+    slice_min(rank) %>% 
+    mutate(msg = str_glue("{peak_period}: {scales::ordinal(rank)} best {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {metric} - {round(peak,1)}"))
+  
+  if(nrow(peaks_compare) > 0) {
+    walk(peaks_compare$msg, print)
+  }
+  
+  # Append to peaks table
+  dbWriteTable(con, "ride_peaks", peaks, append = T)
+  
+  str_glue("Peak efforts for activity {activity_id} appended to database.") %>% print()
+ 
+}
+
 draw_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride") {
   
   activity_id <- activity_bbox[[1]]

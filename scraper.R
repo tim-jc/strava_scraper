@@ -7,6 +7,7 @@ library(tidyverse)
 library(lubridate)
 library(httr)
 library(DBI)
+library(slider)
 
 # clear the memory
 rm(list=ls(all = TRUE))
@@ -58,4 +59,8 @@ if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activity_list", new_act
 
 streams_to_get <- c(activities_loaded, new_activities_to_load$id)[!c(activities_loaded, new_activities_to_load$id) %in% streams_loaded]
 
+# Get stream data from Strava and append to DB
 walk(streams_to_get, ~get_stream_data(.x, display_map = T))
+
+# Calculate peak performances from new activities and append to DB
+walk(streams_to_get, find_activity_peaks)

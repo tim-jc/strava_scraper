@@ -63,4 +63,4 @@ streams_to_get <- c(activities_loaded, new_activities_to_load$id)[!c(activities_
 walk(streams_to_get, ~get_stream_data(.x, display_map = T))
 
 # Calculate peak performances from new activities and append to DB
-walk(streams_to_get, find_activity_peaks)
+walk(streams_to_get, calculate_activity_peaks)

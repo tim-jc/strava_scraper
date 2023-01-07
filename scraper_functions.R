@@ -70,30 +70,28 @@ get_stream_data <- function(activity_id, display_map = F) {
   
 }
 
-find_activity_peaks <- function(activity_id,
-                                peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
-                                peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
+calculate_activity_peaks <- function(activity_id,
+                                     peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
+                                     peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
   
   # Get stream for activity
   stream_sql <- tbl(con, "ride_streams") %>% 
     filter(id == activity_id) %>%
     select(time, all_of(peaks_for)) %>% collect()
   
+  peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$time)]
+  
   # Get all time peaks
   # Calculate best ever and best this year
-  activities <- tbl(con, "activity_list") %>%
-    select(id, start_date_local)
-  
   peaks_sql <- tbl(con, "ride_peaks") %>% 
     filter(peak > 0) %>% 
-    left_join(activities, by = "id") %>% 
+    left_join(tbl(con, "activity_list") %>% select(id, start_date_local), by = "id") %>% 
     collect()
   
   if(activity_id %in% peaks_sql$id) {
     stop(str_glue("Activity ID {activity_id} has already had peaks calculated. Remove from SQL table if re-calculation needed."))
   }
   
-  # Need to remove power data from before I got a power meter (?2017)
   best_peaks <- peaks_sql %>%
     filter(year(start_date_local) == year(Sys.Date())) %>% 
     mutate(peak_period = "Current year") %>% 
@@ -134,10 +132,11 @@ find_activity_peaks <- function(activity_id,
   
   # Compare peaks
   peaks_compare <- best_peaks %>% 
-    left_join(peaks %>% select(metric, time_range, current_peak = peak)) %>% 
+    left_join(peaks %>% select(metric, time_range, current_peak = peak),
+              by = c("metric", "time_range")) %>% 
     filter(current_peak > peak) %>% 
     slice_min(rank) %>% 
-    mutate(msg = str_glue("{peak_period}: {scales::ordinal(rank)} best {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {metric} - {round(peak,1)}"))
+    mutate(msg = str_glue("{peak_period}: {if_else(rank == 1,'B',str_c(scales::ordinal(rank), ' b'))}est {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {metric} - {round(current_peak,1)}"))
   
   if(nrow(peaks_compare) > 0) {
     walk(peaks_compare$msg, print)

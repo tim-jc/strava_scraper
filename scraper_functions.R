@@ -7,6 +7,15 @@ con <- DBI::dbConnect(RSQLite::SQLite(), "~/Documents/Coding/R/Strava/strava_dat
 # Manual activities to exclude (Strava API call fails if these aren't removed)
 activities_to_remove <- c(6317473692, 5686021341, 1358368751, 1222988207, 574040145, 543631692)
 
+# Peaks units / conversions
+peaks_units <- tribble(
+  ~metric, ~display_name, ~multiplier, ~units,
+  "cadence", "cadence", 1, "rpm",
+  "watts", "power", 1, "w",
+  "heartrate", "heart rate", 1, "bpm",
+  "velocity_smooth", "speed", 2.23694, "mph"
+)
+
 # Functions ---------------------------------------------------------------
 
 get_stream_data <- function(activity_id, display_map = F) {
@@ -136,7 +145,8 @@ calculate_activity_peaks <- function(activity_id,
               by = c("metric", "time_range")) %>% 
     filter(current_peak > peak) %>% 
     slice_min(rank) %>% 
-    mutate(msg = str_glue("{peak_period}: {if_else(rank == 1,'B',str_c(scales::ordinal(rank), ' b'))}est {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {metric} - {round(current_peak,1)}"))
+    left_join(peaks_units, by = "metric") %>% 
+    mutate(msg = str_glue("{peak_period}: {if_else(rank == 1,'B',str_c(scales::ordinal(rank), ' b'))}est {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {display_name} - {round(current_peak*multiplier,1)}{units}"))
   
   if(nrow(peaks_compare) > 0) {
     walk(peaks_compare$msg, print)

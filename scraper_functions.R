@@ -94,7 +94,7 @@ calculate_activity_peaks <- function(activity_id,
   # Calculate best ever and best this year
   peaks_sql <- tbl(con, "ride_peaks") %>% 
     filter(peak > 0) %>% 
-    left_join(tbl(con, "activity_list") %>% select(id, start_date_local), by = "id") %>% 
+    left_join(tbl(con, "activity_list") %>% select(id, start_date_local, sport_type), by = "id") %>% 
     collect()
   
   if(activity_id %in% peaks_sql$id) {
@@ -105,6 +105,7 @@ calculate_activity_peaks <- function(activity_id,
     filter(year(start_date_local) == year(Sys.Date())) %>% 
     mutate(peak_period = "Current year") %>% 
     bind_rows(peaks_sql %>% mutate(peak_period = "All time")) %>% 
+    filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
     group_by(peak_period, metric, time_range) %>% 
     slice_max(peak, n = 3, with_ties = F) %>% 
     mutate(rank = rank(-peak))

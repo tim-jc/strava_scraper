@@ -86,7 +86,8 @@ calculate_activity_peaks <- function(activity_id,
   # Get stream for activity
   stream_sql <- tbl(con, "ride_streams") %>% 
     filter(id == activity_id) %>%
-    select(time, all_of(peaks_for)) %>% collect()
+    left_join(tbl(con, "activity_list") %>% select(id, sport_type), by = "id") %>% 
+    select(time, sport_type, all_of(peaks_for)) %>% collect()
   
   peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$time)]
   
@@ -115,7 +116,8 @@ calculate_activity_peaks <- function(activity_id,
   # Large data gaps will mean bike stopped - values should be set to zero - but small gaps can be filled
   peaks <- tibble(time = seq(0,max(stream_sql$time),1)) %>% 
     left_join(stream_sql, by = "time") %>% 
-    pivot_longer(-time, names_to = "metric") %>% 
+    pivot_longer(-c(time, sport_type), names_to = "metric") %>% 
+    filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
     arrange(metric, time) %>% 
     mutate(has_data = !is.na(value),
            has_data_group_id = row_number(),

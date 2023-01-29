@@ -16,7 +16,50 @@ peaks_units <- tribble(
   "velocity_smooth", "speed", 2.23694, "mph"
 )
 
-# Functions ---------------------------------------------------------------
+# Assemble YTD stats
+ytd_stats <- tbl(con, "activities") %>%
+  select(start_date_local, distance, moving_time, kilojoules) %>% 
+  collect() %>% 
+  mutate(yr = year(start_date_local),
+         yr_day = yday(start_date_local),
+         distance_mi = distance * 0.000621371,
+         ton = distance_mi >= 100,
+         moving_time_hr = moving_time / 3600) %>% 
+  filter(start_date_local >= floor_date(Sys.Date() - years(1), "year")) %>% 
+  group_by(yr) %>% 
+  arrange(start_date_local) %>% 
+  mutate(ytd_distance_mi = cumsum(distance_mi),
+         ytd_tons = cumsum(ton),
+         ytd_time_hr = cumsum(moving_time_hr),
+         ytd_energy_kcal = cumsum(kilojoules),
+         ytd_longest_ride = max(distance_mi, na.rm = T)) %>% 
+  select(start_date_local, ton, matches("^yr|^ytd")) %>% 
+  mutate(start_date_local = as.Date(start_date_local)) %>% 
+  group_by(start_date_local, yr, yr_day) %>% 
+  summarise(ytd_distance_mi = max(ytd_distance_mi),
+            ytd_tons = max(ytd_tons),
+            ton_day = any(ton),
+            ytd_time_hr = max(ytd_time_hr),
+            ytd_energy_kcal = max(ytd_energy_kcal),
+            ytd_longest_ride = max(ytd_longest_ride, na.rm = T),
+            activity_day = TRUE,
+            .groups = "drop") %>% 
+  right_join(tibble(start_date_local = seq.Date(floor_date(Sys.Date() - years(1), "year"),
+                                     ceiling_date(Sys.Date(), "year") - days(1),
+                                     "days"))) %>% 
+  mutate(yr = year(start_date_local),
+         yr_day = yday(start_date_local),
+         activity_day = if_else(is.na(activity_day), F, activity_day),
+         ton_day = if_else(is.na(ton_day), F, ton_day)) %>% 
+  group_by(yr) %>% 
+  arrange(yr, yr_day) %>% 
+  filter(!(yr == year(Sys.Date()) & yr_day > yday(Sys.Date()))) %>% 
+  fill(names(.), .direction = "down") %>% 
+  replace(is.na(.), 0) %>%  # in case no riding on first day of year.
+  mutate(ytd_val = yr_day == yday(Sys.Date()),
+         yr_lbl = if_else(yr == year(Sys.Date()), "ytd", "pytd"))
+
+# Scraper functions -------------------------------------------------------
 
 get_stream_data <- function(activity_id, display_map = F) {
   
@@ -71,7 +114,7 @@ get_stream_data <- function(activity_id, display_map = F) {
     
   }
   
-  dbWriteTable(con, "ride_streams", stream_to_load, append = T)
+  dbWriteTable(con, "streams", stream_to_load, append = T)
   
   str_glue("Activity {activity_id} appended to database.") %>% print()
   
@@ -84,18 +127,18 @@ calculate_activity_peaks <- function(activity_id,
                                      peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
   
   # Get stream for activity
-  stream_sql <- tbl(con, "ride_streams") %>% 
+  stream_sql <- tbl(con, "streams") %>% 
     filter(id == activity_id) %>%
-    left_join(tbl(con, "activity_list") %>% select(id, sport_type), by = "id") %>% 
+    left_join(tbl(con, "activities") %>% select(id, sport_type), by = "id") %>% 
     select(time, sport_type, all_of(peaks_for)) %>% collect()
   
   peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$time)]
   
   # Get all time peaks
   # Calculate best ever and best this year
-  peaks_sql <- tbl(con, "ride_peaks") %>% 
+  peaks_sql <- tbl(con, "peaks") %>% 
     filter(peak > 0) %>% 
-    left_join(tbl(con, "activity_list") %>% select(id, start_date_local, sport_type), by = "id") %>% 
+    left_join(tbl(con, "activities") %>% select(id, start_date_local, sport_type), by = "id") %>% 
     collect()
   
   if(activity_id %in% peaks_sql$id) {
@@ -156,26 +199,26 @@ calculate_activity_peaks <- function(activity_id,
   }
   
   # Append to peaks table
-  dbWriteTable(con, "ride_peaks", peaks, append = T)
+  dbWriteTable(con, "peaks", peaks, append = T)
   
   str_glue("Peak efforts for activity {activity_id} appended to database.") %>% print()
  
 }
 
-draw_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride") {
+draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride") {
   
   activity_id <- activity_bbox[[1]]
   bbox <- activity_bbox[[2]]
   
   # Limit activity ids to those of the selected types
-  all_type_id <- tbl(con, "activity_list") %>% 
+  all_type_id <- tbl(con, "activities") %>% 
     filter(type %in% activity_types) %>% 
     pull(id)
   
   activity_id <- activity_id[activity_id %in% all_type_id]
   
   
-  streams <- tbl(con, "ride_streams") %>%
+  streams <- tbl(con, "streams") %>%
     select(id, lat, lng) %>% 
     filter(id %in% activity_id) %>% 
     collect() %>% 
@@ -233,7 +276,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
   # start_location - bounding box passed as NSEW vector, e.g. c(51, 50, 1, 0))
   
   if(all(is.na(activity_id))) {
-    activity_id <- tbl(con, "activity_list") %>% pull(id) %>% unique()
+    activity_id <- tbl(con, "activities") %>% pull(id) %>% unique()
   }
   
   # If bounding box supplied (i.e. 4 element list)
@@ -248,7 +291,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
     
     if(bbox_east <= bbox_west) {stop(str_glue("East value supplied ({bbox_east}) must be greater that West value ({bbox_west})"))}
     
-    activity_id <- tbl(con, "activity_list") %>%
+    activity_id <- tbl(con, "activities") %>%
       filter(start_lat <= bbox_north,
              start_lat >= bbox_south,
              start_lng <= bbox_east,
@@ -260,7 +303,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
   
   # If vector of dates supplied
   if(all(!is.na(start_dates))) {
-    activity_id <- tbl(con, "activity_list") %>% 
+    activity_id <- tbl(con, "activities") %>% 
       collect() %>% 
       mutate(start_date_local = as.Date(start_date_local)) %>% 
       filter(start_date_local %in% start_dates,
@@ -270,7 +313,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
   
   # If vector of years supplied
   if(!is.na(start_years)) {
-    activity_id <- tbl(con, "activity_list") %>% 
+    activity_id <- tbl(con, "activities") %>% 
       collect() %>% 
       mutate(start_yr = year(start_date_local)) %>% 
       filter(start_yr %in% start_years,
@@ -280,7 +323,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
   
   # If minimum distance supplied
   if(!is.na(min_distance)) {
-    activity_id <- tbl(con, "activity_list") %>% 
+    activity_id <- tbl(con, "activities") %>% 
       collect() %>% 
       mutate(distance_miles = distance / 1609.34) %>% 
       filter(distance_miles >=  min_distance,
@@ -314,7 +357,7 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
   # visiting_location - bounding box passed as NSEW vector, e.g. c(51, 50, 1, 0))
   
   if(all(is.na(activity_id))) {
-    activity_id <- tbl(con, "activity_list") %>% pull(id) %>% unique()
+    activity_id <- tbl(con, "activities") %>% pull(id) %>% unique()
   }
   
   # If bounding box supplied (i.e. 4 element list)
@@ -329,7 +372,7 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
     
     if(bbox_east <= bbox_west) {stop(str_glue("East value supplied ({bbox_east}) must be greater that West value ({bbox_west})"))}
     
-    activity_id <- tbl(con, "ride_streams") %>%
+    activity_id <- tbl(con, "streams") %>%
       filter(lat <= bbox_north,
              lat >= bbox_south,
              lng <= bbox_east,
@@ -355,3 +398,170 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
 }
 
 # Need to build a nice map plotting function
+
+
+
+# Visualisation functions -------------------------------------------------
+
+draw_critical_metric_curve <- function(metric_to_plot) {
+
+  if(!metric_to_plot %in% peaks_units$display_name) {
+    stop(str_glue("Invalid metric supplied; allowed values are '{str_flatten(peaks_units$display_name, collapse = \"', '\")}'"))
+  }
+  
+  units <- peaks_units %>% filter(display_name == metric_to_plot)
+  
+  # Get all time peaks
+# Calculate best ever and best this year
+peaks_sql <- tbl(con, "peaks") %>% 
+  filter(peak > 0,
+         metric == local(units$metric)) %>% 
+  left_join(tbl(con, "activities") %>% select(id, start_date_local, sport_type), by = "id") %>% 
+  collect()
+
+best_peaks <- peaks_sql %>%
+  filter(year(start_date_local) == year(Sys.Date())) %>% 
+  mutate(peak_period = "Current year") %>% 
+  bind_rows(peaks_sql %>% mutate(peak_period = "All time")) %>% 
+  filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
+  group_by(peak_period, metric, time_range) %>% 
+  slice_max(peak, n = 3, with_ties = F) %>% 
+  mutate(rank = rank(-peak),
+         peak = peak * local(units$multiplier)) %>% 
+  left_join(peaks_units, by = "metric") %>% 
+  mutate(time_range_fct = if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min')),
+         time_range_fct = factor(time_range_fct),
+         time_range_fct = fct_reorder(time_range_fct, time_range),
+         link = str_glue("https://www.strava.com/activities/{id}"),
+         hover_lbl = str_glue("Best {time_range_fct} {display_name} - {peak_period}
+                              {round(peak, digits = 1)}{units}
+                              Click point to open in Strava"))
+
+peaks_plot <- best_peaks %>% 
+  filter(display_name == metric_to_plot, 
+         rank == 1) %>% 
+  ggplot(aes(x = time_range_fct, y = peak, colour = peak_period,
+             fill = peak_period, group = peak_period, text = hover_lbl)) +
+  geom_point() +
+  geom_area(position = "identity", alpha = 0.2) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(x = "",
+       y = str_glue("{str_to_title(metric_to_plot)} /{local(units$units)}\n"))
+
+peaks_plot <- plotly::ggplotly(peaks_plot, tooltip = "text")
+
+return(peaks_plot)
+
+}
+
+draw_ytd_curve <- function(metric_to_plot) {
+  
+  ytd_tbl <- ytd_stats %>% 
+    pivot_longer(c(matches("^ytd"),-ytd_val)) %>% 
+    filter(name == metric_to_plot) %>% 
+    mutate(hover_lbl = str_glue("{start_date_local}
+                                 N = {round(value, 1)}"))
+  
+  ytd_curve <- ytd_tbl %>% 
+    ggplot(aes(x = yr_day, y = value, colour = yr_lbl)) +
+    geom_step(alpha = 0.5) +
+    theme_minimal() +
+    scale_colour_manual(values = c("pytd" = "grey85", "ytd" = "#0C2340")) +
+    theme(legend.position = "none",
+          axis.text.x = element_blank()) +
+    labs(x = "", y = "")
+  
+  if(metric_to_plot == "ytd_tons") {
+    ytd_curve <- ytd_curve +
+      geom_point(data = ytd_tbl %>% filter(ton_day),
+                 aes(text = hover_lbl), size = 1)
+    
+    ytd_curve <- plotly::ggplotly(ytd_curve, tooltip = "text")
+  } else {
+    ytd_curve <- ytd_curve +
+      geom_point(data = ytd_tbl %>% filter(ytd_val),
+                 aes(text = hover_lbl), size = 1)
+    
+    ytd_curve <- plotly::ggplotly(ytd_curve, tooltip = "text")
+  }
+
+  return(ytd_curve)
+}
+
+get_ytd_values <- function(metric_to_display) {
+  
+  vals <- ytd_stats %>%
+    filter(ytd_val) %>% 
+    select(-c(yr_day, ytd_val, yr, start_date_local)) %>% 
+    pivot_longer(-yr_lbl, names_to = "metric") %>% 
+    filter(metric == metric_to_display) %>% 
+    select(-metric) %>% 
+    mutate(value = round(value,1)) %>% 
+    deframe()
+  
+  return(vals)
+  
+}
+
+get_ytd_valuebox <- function(...) {
+  
+  vals <- get_ytd_values(...)
+  
+  icon_str <- case_when(vals["ytd"] > vals["pytd"] ~ "fa-arrow-up",
+                        vals["ytd"] < vals["pytd"] ~ "fa-arrow-down",
+                        vals["ytd"] == vals["pytd"] ~ "fa-arrows-left-right")
+  
+  valueBox(vals["ytd"], icon = icon_str, color = "#EDF0F1")
+}
+
+add_track <- function(leaflet_obj, gpx_df, track_colour = "#0C2340") {
+  
+  latitude <- gpx_df$lat
+  longitude <- gpx_df$lng
+  
+  leaflet_obj %>% 
+    addPolylines(lat = latitude, lng = longitude, opacity = 0.5, weight = 2, color = track_colour)
+  
+}
+
+draw_map <- function(streams_tbl) {
+  
+  map <- leaflet() %>% 
+    addTiles('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}.png',
+             attribution = paste(
+               '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors',
+               '&copy; <a href="https://cartodb.com/attributions">CartoDB</a>'
+             )) 
+  
+  for(i in unique(streams_tbl$id)) {
+    
+    map <- map %>% add_track(streams_tbl %>% filter(id == i))
+    
+  }
+  
+  return(map)
+  
+}
+
+draw_ytd_map <- function() {
+  
+  ytd_activities <- tbl(con, "activities") %>% 
+    collect() %>% 
+    filter(type == "Ride",
+           start_date_local >= floor_date(Sys.Date(), "year"))
+  
+  ytd_streams <- tbl(con, "streams") %>% 
+    filter(id %in% local(ytd_activities$id)) %>% 
+    collect()
+  
+  map <- draw_map(ytd_streams)
+  
+  return(map)
+  
+}
+
+
+
+
+

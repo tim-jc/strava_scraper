@@ -1,0 +1,115 @@
+---
+title: "Stats"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: 
+      version: 4
+      bootswatch: flatly
+    navbar: 
+    - { icon: "fa-circle", href: "http://phiets.cc", align: right}
+    - { icon: "fa-circle", href: "http://phiets.cc", align: right}
+---
+
+```{r setup, include=FALSE}
+libs <- c("flexdashboard","tidyverse","plotly","leaflet","leaflet.extras","DBI","lubridate","mapdata")
+purrr::walk(libs, ~library(.,character.only = T))
+
+# clear the memory
+rm(list=ls(all = TRUE))
+
+source("scraper_functions.R")
+
+```
+
+Summary
+===================================== 
+
+Row
+-----------------------------------------------------------------------
+
+### `r str_glue('Miles this year (vs {get_ytd_values(\"ytd_distance_mi\")["pytd"]})')`
+
+```{r}
+get_ytd_valuebox("ytd_distance_mi")
+```
+
+### `r str_glue('Tons this year (vs {get_ytd_values("ytd_tons")["pytd"]})')`
+
+```{r}
+get_ytd_valuebox("ytd_tons")
+```
+
+### `r str_glue('Hours this year (vs {get_ytd_values("ytd_time_hr")["pytd"]})')`
+
+```{r}
+get_ytd_valuebox("ytd_time_hr")
+```
+
+### `r str_glue('Longest ride this year (mi) (vs {get_ytd_values("ytd_longest_ride")["pytd"]})')`
+
+```{r}
+get_ytd_valuebox("ytd_longest_ride")
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### `r str_glue("Miles (vs {year(Sys.Date()) - 1})")`
+
+```{r}
+draw_ytd_curve("ytd_distance_mi")
+```
+
+### `r str_glue("Tons (vs {year(Sys.Date()) - 1})")`
+
+```{r}
+draw_ytd_curve("ytd_tons")
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### Critical Power (vs all-time peaks)
+
+```{r}
+draw_critical_metric_curve("power")
+```
+
+Map
+===================================== 
+
+Row
+-----------------------------------------------------------------------
+
+### `r str_glue("{year(Sys.Date())} tracks")`
+
+```{r}
+draw_ytd_map()
+```
+
+
+Peak Performances
+===================================== 
+
+Row
+-----------------------------------------------------------------------
+
+### Power
+
+```{r}
+draw_critical_metric_curve("power")
+```
+
+### Cadence
+
+```{r}
+draw_critical_metric_curve("cadence")
+```
+
+### Heart Rate
+
+```{r}
+draw_critical_metric_curve("heart rate")
+```

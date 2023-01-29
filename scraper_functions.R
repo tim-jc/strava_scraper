@@ -13,7 +13,8 @@ peaks_units <- tribble(
   "cadence", "cadence", 1, "rpm",
   "watts", "power", 1, "w",
   "heartrate", "heart rate", 1, "bpm",
-  "velocity_smooth", "speed", 2.23694, "mph"
+  "velocity_smooth", "speed", 2.23694, "mph",
+  "distance", "distance", 0.000621371, "miles"
 )
 
 # Assemble YTD stats
@@ -45,8 +46,8 @@ ytd_stats <- tbl(con, "activities") %>%
             activity_day = TRUE,
             .groups = "drop") %>% 
   right_join(tibble(start_date_local = seq.Date(floor_date(Sys.Date() - years(1), "year"),
-                                     ceiling_date(Sys.Date(), "year") - days(1),
-                                     "days"))) %>% 
+                                                ceiling_date(Sys.Date(), "year") - days(1),
+                                                "days"))) %>% 
   mutate(yr = year(start_date_local),
          yr_day = yday(start_date_local),
          activity_day = if_else(is.na(activity_day), F, activity_day),
@@ -64,10 +65,10 @@ ytd_stats <- tbl(con, "activities") %>%
 get_stream_data <- function(activity_id, display_map = F) {
   
   str_glue("Starting activity {activity_id}.") %>% print()
-
+  
   stream_types <- c("time", "latlng", "distance", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth") %>% 
     str_flatten(collapse = ",")
-    
+  
   stream <- GET(url = str_glue("https://www.strava.com/api/v3/activities/{activity_id}/streams/{stream_types}"),
                 stoken)
   
@@ -82,7 +83,7 @@ get_stream_data <- function(activity_id, display_map = F) {
     group_by(type) %>% 
     mutate(record_id = row_number()) %>% 
     ungroup()
-           
+  
   if(any(stream_to_load$type == "latlng")) {
     stream_to_load <- stream_to_load %>% 
       mutate(value = data[,1])
@@ -125,12 +126,15 @@ get_stream_data <- function(activity_id, display_map = F) {
 calculate_activity_peaks <- function(activity_id,
                                      peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
                                      peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
+  # Get actvity data
+  activities <- tbl(con, "activities") %>% collect()
   
   # Get stream for activity
   stream_sql <- tbl(con, "streams") %>% 
     filter(id == activity_id) %>%
-    left_join(tbl(con, "activities") %>% select(id, sport_type), by = "id") %>% 
-    select(time, sport_type, all_of(peaks_for)) %>% collect()
+    collect() %>%
+    left_join(activities %>% select(id, sport_type), by = "id") %>% 
+    select(time, sport_type, all_of(peaks_for)) 
   
   peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$time)]
   
@@ -154,6 +158,23 @@ calculate_activity_peaks <- function(activity_id,
     slice_max(peak, n = 3, with_ties = F) %>% 
     mutate(rank = rank(-peak))
   
+  # Create distance "peaks", combine with other peaks (exclude current activity so it isn't compared
+  # to itself)
+  distance_peaks <- bind_rows(activities %>% filter(id != activity_id) %>% 
+                                slice_max(distance, n = 3) %>%
+                                mutate(peak_period = "All time", 
+                                       rank = row_number()),
+                              activities %>% filter(id != activity_id,
+                                                    year(start_date_local) == year(Sys.Date())) %>%
+                                slice_max(distance, n = 3) %>%
+                                mutate(peak_period = "Current year",
+                                       rank = row_number())) %>% 
+    mutate(metric = "distance") %>% 
+    select(id, metric, peak = distance, start_date_local, sport_type, peak_period, rank)
+  
+  best_peaks <- bind_rows(best_peaks,
+                          distance_peaks)
+  
   # Ensure a row present for every second of the entire activity (no data recorded when stopped)
   # Then establish the width of any data gaps for later smoothing
   # Large data gaps will mean bike stopped - values should be set to zero - but small gaps can be filled
@@ -166,8 +187,8 @@ calculate_activity_peaks <- function(activity_id,
            has_data_group_id = row_number(),
            prev_has_data = lag(has_data),
            has_data_group_id = case_when(is.na(prev_has_data) ~ has_data_group_id,
-                                 has_data != prev_has_data ~ has_data_group_id,
-                                 T ~ NA_integer_)) %>% 
+                                         has_data != prev_has_data ~ has_data_group_id,
+                                         T ~ NA_integer_)) %>% 
     fill(has_data_group_id, .direction = "down") %>% 
     group_by(has_data_group_id) %>% 
     mutate(gap_size = n(),
@@ -185,6 +206,15 @@ calculate_activity_peaks <- function(activity_id,
            peak = map_dbl(time_range_means, ~max(., na.rm = T))) %>% 
     select(id, metric, time_range, peak)
   
+  # Bind on distance "peak" for activity in question
+  distance_peak <- activities %>% 
+    filter(id == activity_id) %>% 
+    mutate(metric = "distance") %>% 
+    select(id, metric, peak = distance)
+  
+  peaks <- bind_rows(peaks,
+                     distance_peak)
+  
   # Compare peaks
   peaks_compare <- best_peaks %>% 
     left_join(peaks %>% select(metric, time_range, current_peak = peak),
@@ -192,17 +222,18 @@ calculate_activity_peaks <- function(activity_id,
     filter(current_peak > peak) %>% 
     slice_min(rank) %>% 
     left_join(peaks_units, by = "metric") %>% 
-    mutate(msg = str_glue("{peak_period}: {if_else(rank == 1,'B',str_c(scales::ordinal(rank), ' b'))}est {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {display_name} - {round(current_peak*multiplier,1)}{units}"))
+    mutate(msg = str_glue("{peak_period}: {if_else(rank == 1,'B',str_c(scales::ordinal(rank), ' b'))}est {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {display_name} - {round(current_peak*multiplier,1)}{units}"),
+           msg = str_remove(msg, "NA "))
   
   if(nrow(peaks_compare) > 0) {
     walk(peaks_compare$msg, print)
   }
   
   # Append to peaks table
-  dbWriteTable(con, "peaks", peaks, append = T)
+  dbWriteTable(con, "peaks", peaks %>% filter(metric != "distance"), append = T)
   
   str_glue("Peak efforts for activity {activity_id} appended to database.") %>% print()
- 
+  
 }
 
 draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride") {
@@ -393,7 +424,7 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
   }
   
   activity_bbox <- list(activity_id, prev_bbox)
-   
+  
   return(activity_bbox)
 }
 
@@ -404,7 +435,7 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
 # Visualisation functions -------------------------------------------------
 
 draw_critical_metric_curve <- function(metric_to_plot) {
-
+  
   if(!metric_to_plot %in% peaks_units$display_name) {
     stop(str_glue("Invalid metric supplied; allowed values are '{str_flatten(peaks_units$display_name, collapse = \"', '\")}'"))
   }
@@ -412,47 +443,47 @@ draw_critical_metric_curve <- function(metric_to_plot) {
   units <- peaks_units %>% filter(display_name == metric_to_plot)
   
   # Get all time peaks
-# Calculate best ever and best this year
-peaks_sql <- tbl(con, "peaks") %>% 
-  filter(peak > 0,
-         metric == local(units$metric)) %>% 
-  left_join(tbl(con, "activities") %>% select(id, start_date_local, sport_type), by = "id") %>% 
-  collect()
-
-best_peaks <- peaks_sql %>%
-  filter(year(start_date_local) == year(Sys.Date())) %>% 
-  mutate(peak_period = "Current year") %>% 
-  bind_rows(peaks_sql %>% mutate(peak_period = "All time")) %>% 
-  filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
-  group_by(peak_period, metric, time_range) %>% 
-  slice_max(peak, n = 3, with_ties = F) %>% 
-  mutate(rank = rank(-peak),
-         peak = peak * local(units$multiplier)) %>% 
-  left_join(peaks_units, by = "metric") %>% 
-  mutate(time_range_fct = if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min')),
-         time_range_fct = factor(time_range_fct),
-         time_range_fct = fct_reorder(time_range_fct, time_range),
-         link = str_glue("https://www.strava.com/activities/{id}"),
-         hover_lbl = str_glue("Best {time_range_fct} {display_name} - {peak_period}
+  # Calculate best ever and best this year
+  peaks_sql <- tbl(con, "peaks") %>% 
+    filter(peak > 0,
+           metric == local(units$metric)) %>% 
+    left_join(tbl(con, "activities") %>% select(id, start_date_local, sport_type), by = "id") %>% 
+    collect()
+  
+  best_peaks <- peaks_sql %>%
+    filter(year(start_date_local) == year(Sys.Date())) %>% 
+    mutate(peak_period = "Current year") %>% 
+    bind_rows(peaks_sql %>% mutate(peak_period = "All time")) %>% 
+    filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
+    group_by(peak_period, metric, time_range) %>% 
+    slice_max(peak, n = 3, with_ties = F) %>% 
+    mutate(rank = rank(-peak),
+           peak = peak * local(units$multiplier)) %>% 
+    left_join(peaks_units, by = "metric") %>% 
+    mutate(time_range_fct = if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min')),
+           time_range_fct = factor(time_range_fct),
+           time_range_fct = fct_reorder(time_range_fct, time_range),
+           link = str_glue("https://www.strava.com/activities/{id}"),
+           hover_lbl = str_glue("Best {time_range_fct} {display_name} - {peak_period}
                               {round(peak, digits = 1)}{units}
                               Click point to open in Strava"))
-
-peaks_plot <- best_peaks %>% 
-  filter(display_name == metric_to_plot, 
-         rank == 1) %>% 
-  ggplot(aes(x = time_range_fct, y = peak, colour = peak_period,
-             fill = peak_period, group = peak_period, text = hover_lbl)) +
-  geom_point() +
-  geom_area(position = "identity", alpha = 0.2) +
-  theme_minimal() +
-  theme(legend.position = "none") +
-  labs(x = "",
-       y = str_glue("{str_to_title(metric_to_plot)} /{local(units$units)}\n"))
-
-peaks_plot <- plotly::ggplotly(peaks_plot, tooltip = "text")
-
-return(peaks_plot)
-
+  
+  peaks_plot <- best_peaks %>% 
+    filter(display_name == metric_to_plot, 
+           rank == 1) %>% 
+    ggplot(aes(x = time_range_fct, y = peak, colour = peak_period,
+               fill = peak_period, group = peak_period, text = hover_lbl)) +
+    geom_point() +
+    geom_area(position = "identity", alpha = 0.2) +
+    theme_minimal() +
+    theme(legend.position = "none") +
+    labs(x = "",
+         y = str_glue("{str_to_title(metric_to_plot)} /{local(units$units)}\n"))
+  
+  peaks_plot <- plotly::ggplotly(peaks_plot, tooltip = "text")
+  
+  return(peaks_plot)
+  
 }
 
 draw_ytd_curve <- function(metric_to_plot) {
@@ -485,7 +516,7 @@ draw_ytd_curve <- function(metric_to_plot) {
     
     ytd_curve <- plotly::ggplotly(ytd_curve, tooltip = "text")
   }
-
+  
   return(ytd_curve)
 }
 

@@ -27,8 +27,8 @@ if(file.exists(".httr-oauth")) {
 # Get data ----------------------------------------------------------------
 
 # Connect to SQLite DB, find data already loaded
-activities_loaded <- tbl(con, "activity_list") %>% pull(id) %>% unique()
-streams_loaded <- tbl(con, "ride_streams") %>% pull(id) %>% unique()
+activities_loaded <- tbl(con, "activities") %>% pull(id) %>% unique()
+streams_loaded <- tbl(con, "streams") %>% pull(id) %>% unique()
 
 # Update activities -------------------------------------------------------
 
@@ -53,7 +53,7 @@ new_activities_to_load <- all_activity_id$content %>%
   as_tibble()
 
 # Activity list
-if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activity_list", new_activities_to_load, append = T)}
+if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activities", new_activities_to_load, append = T)}
 
 # Update streams ----------------------------------------------------------
 
@@ -64,3 +64,6 @@ walk(streams_to_get, ~get_stream_data(.x, display_map = T))
 
 # Calculate peak performances from new activities and append to DB
 walk(streams_to_get, calculate_activity_peaks)
+
+# Run data quality checks (orphan activities, rides without peaks, etc)
+# Function to do this needs to be written!!

@@ -8,6 +8,7 @@ library(lubridate)
 library(httr)
 library(DBI)
 library(slider)
+library(stravR)
 
 # clear the memory
 rm(list=ls(all = TRUE))
@@ -17,12 +18,7 @@ source("config.R")
 
 # Define values -----------------------------------------------------------
 
-# Check if strava authentication token exists; create if not
-if(file.exists(".httr-oauth")) {
-  stoken <- httr::config(token = readRDS('.httr-oauth')[[1]])
-} else {
-  stoken <- httr::config(token = strava_oauth(app_name, app_client_id, app_secret, app_scope="activity:read_all", cache = T))
-}
+stoken <- get_strava_token(app_name, app_client_id, app_secret)
 
 # Get data ----------------------------------------------------------------
 
@@ -33,14 +29,10 @@ streams_loaded <- tbl(con, "streams") %>% pull(id) %>% unique()
 # Update activities -------------------------------------------------------
 
 # Get 200 most recent activities
-all_activity_id <- GET(url = "https://www.strava.com/api/v3/athlete/activities",
-                       config = stoken, 
-                       query = list(per_page = 200))
+activities <- get_activity_data(stoken, 200)
 
 # Find new activities and process
-new_activities_to_load <- all_activity_id$content %>%
-  rawToChar() %>%
-  jsonlite::fromJSON() %>%
+new_activities_to_load <- activities %>%
   filter(!id %in% c(activities_loaded, activities_to_remove)) %>% 
   mutate(start_lat = map_dbl(start_latlng, 1),
          start_lng = map_dbl(start_latlng, 2),

@@ -17,7 +17,7 @@ source("config.R")
 
 # Define values -----------------------------------------------------------
 
-# Check if strava authenication token exists; create if not
+# Check if strava authentication token exists; create if not
 if(file.exists(".httr-oauth")) {
   stoken <- httr::config(token = readRDS('.httr-oauth')[[1]])
 } else {
@@ -34,7 +34,7 @@ streams_loaded <- tbl(con, "streams") %>% pull(id) %>% unique()
 
 # Get 200 most recent activities
 all_activity_id <- GET(url = "https://www.strava.com/api/v3/athlete/activities",
-                       stoken, 
+                       config = stoken, 
                        query = list(per_page = 200))
 
 # Find new activities and process
@@ -60,7 +60,13 @@ if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activities", new_activi
 streams_to_get <- c(activities_loaded, new_activities_to_load$id)[!c(activities_loaded, new_activities_to_load$id) %in% streams_loaded]
 
 # Get stream data from Strava and append to DB
-walk(streams_to_get, ~get_stream_data(.x, display_map = T))
+for(strm in streams_to_get) {
+
+  stream_to_load <- get_stream_data(activity_id = strm, strava_token = stoken, display_map = T)
+  dbWriteTable(con, "streams", stream_to_load, append = T)
+  str_glue("Activity {strm} appended to database.") %>% print()
+    
+}
 
 # Calculate peak performances from new activities and append to DB
 walk(streams_to_get, calculate_activity_peaks)

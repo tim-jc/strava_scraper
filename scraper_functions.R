@@ -62,9 +62,6 @@ ytd_stats <- tbl(con, "activities") %>%
 
 # Scraper functions -------------------------------------------------------
 
-# get_stream_data 
-source("~/Documents/Coding/R/Strava/stravR/get_stream_data.R")
-
 calculate_activity_peaks <- function(activity_id,
                                      peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
                                      peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {

@@ -5,7 +5,6 @@
 # libraries
 library(tidyverse)
 library(lubridate)
-library(httr)
 library(DBI)
 library(slider)
 library(stravR)
@@ -28,21 +27,9 @@ streams_loaded <- tbl(con, "streams") %>% pull(id) %>% unique()
 
 # Update activities -------------------------------------------------------
 
-# Get 200 most recent activities
-activities <- get_activity_data(stoken, 200)
-
-# Find new activities and process
-new_activities_to_load <- activities %>%
-  filter(!id %in% c(activities_loaded, activities_to_remove)) %>% 
-  mutate(start_lat = map_dbl(start_latlng, 1),
-         start_lng = map_dbl(start_latlng, 2),
-         end_lat = map_dbl(end_latlng, 1),
-         end_lng = map_dbl(end_latlng, 2),
-         strava_link = str_glue("https://www.strava.com/activities/{id}"),
-         ride_start = str_replace_all(start_date_local, "T|Z", " ") %>% as.POSIXct(),
-         ride_start = format(ride_start, "%Y-%m-%d %H:%M:%S")) %>% 
-  select(-c(athlete, map, start_latlng, end_latlng)) %>% 
-  as_tibble()
+# Get 200 most recent activities and find new activities
+new_activities_to_load <- get_activity_data(strava_token = stoken,
+                                            activities_to_exclude = c(activities_loaded, activities_to_remove))
 
 # Activity list
 if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activities", new_activities_to_load, append = T)}

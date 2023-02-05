@@ -13,7 +13,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-libs <- c("flexdashboard","tidyverse","plotly","leaflet","leaflet.extras","DBI","lubridate","mapdata")
+libs <- c("flexdashboard","tidyverse","plotly","leaflet","leaflet.extras","DBI","lubridate","mapdata", "stravR")
 purrr::walk(libs, ~library(.,character.only = T))
 
 # clear the memory
@@ -29,25 +29,25 @@ Summary
 Row
 -----------------------------------------------------------------------
 
-### `r str_glue('Miles this year (vs {get_ytd_values(\"ytd_distance_mi\")["pytd"]})')`
+### `r str_glue('Miles this year<br>({get_ytd_values("distance_mi")["pytd"]} pytd, {get_ytd_values("distance_mi")["pyr"]} py total)')`
 
 ```{r}
 get_ytd_valuebox("ytd_distance_mi")
 ```
 
-### `r str_glue('Tons this year (vs {get_ytd_values("ytd_tons")["pytd"]})')`
+### `r str_glue('Tons this year<br>({get_ytd_values("tons")["pytd"]} pytd, {get_ytd_values("tons")["pyr"]} py total)')`
 
 ```{r}
 get_ytd_valuebox("ytd_tons")
 ```
 
-### `r str_glue('Hours this year (vs {get_ytd_values("ytd_time_hr")["pytd"]})')`
+### `r str_glue('Hours this year<br>({get_ytd_values("time_hr")["pytd"]} pytd, {get_ytd_values("time_hr")["pyr"]} py total)')`
 
 ```{r}
 get_ytd_valuebox("ytd_time_hr")
 ```
 
-### `r str_glue('Longest ride this year (mi) (vs {get_ytd_values("ytd_longest_ride")["pytd"]})')`
+### `r str_glue('Longest ride this year (mi)<br>({get_ytd_values("longest_ride")["pytd"]} pytd, {get_ytd_values("longest_ride")["pyr"]} py total)')`
 
 ```{r}
 get_ytd_valuebox("ytd_longest_ride")

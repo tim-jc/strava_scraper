@@ -21,19 +21,20 @@ peaks_units <- tribble(
 ytd_stats <- tbl(con, "activities") %>%
   select(start_date_local, distance, moving_time, kilojoules) %>% 
   collect() %>% 
+  filter(start_date_local >= floor_date(Sys.Date() - years(1), "year")) %>% 
   mutate(yr = year(start_date_local),
          yr_day = yday(start_date_local),
          distance_mi = distance * 0.000621371,
          ton = distance_mi >= 100,
          moving_time_hr = moving_time / 3600) %>% 
-  filter(start_date_local >= floor_date(Sys.Date() - years(1), "year")) %>% 
   group_by(yr) %>% 
   arrange(start_date_local) %>% 
   mutate(ytd_distance_mi = cumsum(distance_mi),
          ytd_tons = cumsum(ton),
          ytd_time_hr = cumsum(moving_time_hr),
-         ytd_energy_kcal = cumsum(kilojoules),
-         ytd_longest_ride = max(distance_mi, na.rm = T)) %>% 
+         ytd_energy_kcal = cumsum(replace_na(kilojoules,0)),
+         ytd_longest_ride = max(distance_mi[yr_day <= yday(Sys.Date())], na.rm = T),
+         yr_longest_ride = max(distance_mi, na.rm = T)) %>% 
   select(start_date_local, ton, matches("^yr|^ytd")) %>% 
   mutate(start_date_local = as.Date(start_date_local)) %>% 
   group_by(start_date_local, yr, yr_day) %>% 
@@ -43,8 +44,14 @@ ytd_stats <- tbl(con, "activities") %>%
             ytd_time_hr = max(ytd_time_hr),
             ytd_energy_kcal = max(ytd_energy_kcal),
             ytd_longest_ride = max(ytd_longest_ride, na.rm = T),
+            yr_longest_ride = max(yr_longest_ride, na.rm = T),
             activity_day = TRUE,
             .groups = "drop") %>% 
+  group_by(yr) %>% 
+  mutate(yr_distance_mi = max(ytd_distance_mi),
+         yr_tons = max(ytd_tons),
+         yr_time_hr = max(ytd_time_hr),
+         yr_energy_kcal = max(ytd_energy_kcal)) %>% 
   right_join(tibble(start_date_local = seq.Date(floor_date(Sys.Date() - years(1), "year"),
                                                 ceiling_date(Sys.Date(), "year") - days(1),
                                                 "days"))) %>% 
@@ -52,13 +59,14 @@ ytd_stats <- tbl(con, "activities") %>%
          yr_day = yday(start_date_local),
          activity_day = if_else(is.na(activity_day), F, activity_day),
          ton_day = if_else(is.na(ton_day), F, ton_day)) %>% 
-  group_by(yr) %>% 
   arrange(yr, yr_day) %>% 
   filter(!(yr == year(Sys.Date()) & yr_day > yday(Sys.Date()))) %>% 
   fill(names(.), .direction = "down") %>% 
   replace(is.na(.), 0) %>%  # in case no riding on first day of year.
   mutate(ytd_val = yr_day == yday(Sys.Date()),
-         yr_lbl = if_else(yr == year(Sys.Date()), "ytd", "pytd"))
+         yr_lbl = if_else(yr == year(Sys.Date()), "ytd", "pytd")) %>% 
+  ungroup()
+
 
 # Scraper functions -------------------------------------------------------
 
@@ -228,6 +236,17 @@ draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride")
   
   print(leaflet_map)
   print(activity_id)
+}
+
+
+# Data quality functions --------------------------------------------------
+
+check_data_quality <- function() {
+  
+  # Check for activities without peaks
+  # Check for activities without streams
+  # Check for streams / peaks that are orphaned (i.e. not in activities)
+  
 }
 
 # Ride finder functions ---------------------------------------------------
@@ -465,9 +484,10 @@ get_ytd_values <- function(metric_to_display) {
     filter(ytd_val) %>% 
     select(-c(yr_day, ytd_val, yr, start_date_local)) %>% 
     pivot_longer(-yr_lbl, names_to = "metric") %>% 
-    filter(metric == metric_to_display) %>% 
+    filter(str_detect(metric, metric_to_display)) %>% 
+    mutate(value = round(value,1),
+           yr_lbl = if_else(str_detect(metric, "^yr_"), str_replace(yr_lbl, "td", "r"), yr_lbl)) %>% 
     select(-metric) %>% 
-    mutate(value = round(value,1)) %>% 
     deframe()
   
   return(vals)
@@ -477,22 +497,12 @@ get_ytd_values <- function(metric_to_display) {
 get_ytd_valuebox <- function(...) {
   
   vals <- get_ytd_values(...)
-  
+
   icon_str <- case_when(vals["ytd"] > vals["pytd"] ~ "fa-arrow-up",
                         vals["ytd"] < vals["pytd"] ~ "fa-arrow-down",
                         vals["ytd"] == vals["pytd"] ~ "fa-arrows-left-right")
   
   valueBox(vals["ytd"], icon = icon_str, color = "#EDF0F1")
-}
-
-add_track <- function(leaflet_obj, gpx_df, track_colour = "#0C2340") {
-  
-  latitude <- gpx_df$lat
-  longitude <- gpx_df$lng
-  
-  leaflet_obj %>% 
-    addPolylines(lat = latitude, lng = longitude, opacity = 0.5, weight = 2, color = track_colour)
-  
 }
 
 draw_map <- function(streams_tbl) {
@@ -530,8 +540,3 @@ draw_ytd_map <- function() {
   return(map)
   
 }
-
-
-
-
-

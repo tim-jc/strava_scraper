@@ -31,7 +31,7 @@ streams_loaded <- tbl(con, "streams") %>% pull(id) %>% unique()
 new_activities_to_load <- get_activity_data(strava_token = stoken,
                                             activities_to_exclude = c(activities_loaded, activities_to_remove))
 
-# Activity list
+# Write new activities to DB
 if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activities", new_activities_to_load, append = T)}
 
 # Update streams ----------------------------------------------------------
@@ -52,3 +52,6 @@ walk(streams_to_get, calculate_activity_peaks)
 
 # Run data quality checks (orphan activities, rides without peaks, etc)
 # Function to do this needs to be written!!
+
+# Render dashboard
+rmarkdown::render("index.Rmd", output_file = "index.html", output_dir = "docs/")

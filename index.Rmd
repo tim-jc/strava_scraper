@@ -29,6 +29,12 @@ Summary
 Row
 -----------------------------------------------------------------------
 
+### Last refreshed
+
+```{r}
+valueBox(Sys.time(), icon = icon_str, color = "#EDF0F1")
+```
+
 ### `r str_glue('Miles this year<br>({get_ytd_values("distance_mi")["pytd"]} pytd, {get_ytd_values("distance_mi")["pyr"]} py total)')`
 
 ```{r}
@@ -47,7 +53,7 @@ get_ytd_valuebox("ytd_tons")
 get_ytd_valuebox("ytd_time_hr")
 ```
 
-### `r str_glue('Longest ride this year (mi)<br>({get_ytd_values("longest_ride")["pytd"]} pytd, {get_ytd_values("longest_ride")["pyr"]} py total)')`
+### `r str_glue('Longest ride this year (mi)<br>({get_ytd_values("longest_ride")["pytd"]} pytd, {get_ytd_values("longest_ride")["pyr"]} py max)')`
 
 ```{r}
 get_ytd_valuebox("ytd_longest_ride")

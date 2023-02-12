@@ -452,7 +452,7 @@ draw_ytd_curve <- function(metric_to_plot) {
     filter(name == metric_to_plot) %>% 
     mutate(hover_lbl = str_glue("{start_date_local}
                                  N = {round(value, 1)}"),
-           activity_url = str_glue("https://www.strava.com/activities/{activity_id}"))
+           activity_url = str_glue("https://www.strava.com/activities/{id}"))
   
   ytd_curve <- ytd_tbl %>% 
     ggplot(aes(x = yr_day, y = value, colour = yr_lbl)) +

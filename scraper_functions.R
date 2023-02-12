@@ -451,10 +451,8 @@ draw_ytd_curve <- function(metric_to_plot) {
     pivot_longer(c(matches("^ytd"),-ytd_val)) %>% 
     filter(name == metric_to_plot) %>% 
     mutate(hover_lbl = str_glue("{start_date_local}
-                                 N = {round(value, 1)}"))
-           
-           ,
-           activity_url = str_glue("https://www.strava.com/activities/{id}"))
+                                 N = {round(value, 1)}"),
+           activity_url = str_glue("https://www.strava.com/activities/{activity_id}"))
   
   ytd_curve <- ytd_tbl %>% 
     ggplot(aes(x = yr_day, y = value, colour = yr_lbl)) +
@@ -468,16 +466,30 @@ draw_ytd_curve <- function(metric_to_plot) {
   if(metric_to_plot == "ytd_tons") {
     ytd_curve <- ytd_curve +
       geom_point(data = ytd_tbl %>% filter(ton_day),
-                 aes(text = hover_lbl), size = 1)
+                 aes(text = hover_lbl, customdata = activity_url), size = 1)
     
-    ytd_curve <- plotly::ggplotly(ytd_curve, tooltip = "text")
   } else {
     ytd_curve <- ytd_curve +
       geom_point(data = ytd_tbl %>% filter(ytd_val),
-                 aes(text = hover_lbl), size = 1)
+                 aes(text = hover_lbl, customdata = activity_url), size = 1)
     
-    ytd_curve <- plotly::ggplotly(ytd_curve, tooltip = "text")
   }
+  
+  ytd_curve <- plotly::ggplotly(ytd_curve, tooltip = "text")
+  
+  # Render custom JS
+  ytd_curve <- ytd_curve %>% htmlwidgets::onRender("
+       function(el, x) {
+       
+         el.on('plotly_click', function(data) {
+           // retrieve url from the customdata field passed to ggplot
+           var url = data.points[0].customdata;
+           // open this url in the same window
+           window.open(url, \"_blank\");
+         });
+       
+       }")
+  
   
   return(ytd_curve)
 }

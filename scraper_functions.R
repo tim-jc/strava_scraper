@@ -19,7 +19,7 @@ peaks_units <- tribble(
 
 # Assemble YTD stats
 ytd_stats <- tbl(con, "activities") %>%
-  select(start_date_local, distance, moving_time, kilojoules) %>% 
+  select(id, start_date_local, distance, moving_time, kilojoules) %>% 
   collect() %>% 
   filter(start_date_local >= floor_date(Sys.Date() - years(1), "year")) %>% 
   mutate(yr = year(start_date_local),
@@ -35,7 +35,7 @@ ytd_stats <- tbl(con, "activities") %>%
          ytd_energy_kcal = cumsum(replace_na(kilojoules,0)),
          ytd_longest_ride = max(distance_mi[yr_day <= yday(Sys.Date())], na.rm = T),
          yr_longest_ride = max(distance_mi, na.rm = T)) %>% 
-  select(start_date_local, ton, matches("^yr|^ytd")) %>% 
+  select(id, distance_mi, start_date_local, ton, matches("^yr|^ytd")) %>% 
   mutate(start_date_local = as.Date(start_date_local)) %>% 
   group_by(start_date_local, yr, yr_day) %>% 
   summarise(ytd_distance_mi = max(ytd_distance_mi),
@@ -46,6 +46,7 @@ ytd_stats <- tbl(con, "activities") %>%
             ytd_longest_ride = max(ytd_longest_ride, na.rm = T),
             yr_longest_ride = max(yr_longest_ride, na.rm = T),
             activity_day = TRUE,
+            activity_id = id[distance_mi == max(distance_mi)],
             .groups = "drop") %>% 
   group_by(yr) %>% 
   mutate(yr_distance_mi = max(ytd_distance_mi),
@@ -61,7 +62,7 @@ ytd_stats <- tbl(con, "activities") %>%
          ton_day = if_else(is.na(ton_day), F, ton_day)) %>% 
   arrange(yr, yr_day) %>% 
   filter(!(yr == year(Sys.Date()) & yr_day > yday(Sys.Date()))) %>% 
-  fill(names(.), .direction = "down") %>% 
+  fill(names(.)[names(.) != "activity_ids"], .direction = "down") %>% 
   replace(is.na(.), 0) %>%  # in case no riding on first day of year.
   mutate(ytd_val = yr_day == yday(Sys.Date()),
          yr_lbl = if_else(yr == year(Sys.Date()), "ytd", "pytd")) %>% 
@@ -451,6 +452,9 @@ draw_ytd_curve <- function(metric_to_plot) {
     filter(name == metric_to_plot) %>% 
     mutate(hover_lbl = str_glue("{start_date_local}
                                  N = {round(value, 1)}"))
+           
+           ,
+           activity_url = str_glue("https://www.strava.com/activities/{id}"))
   
   ytd_curve <- ytd_tbl %>% 
     ggplot(aes(x = yr_day, y = value, colour = yr_lbl)) +

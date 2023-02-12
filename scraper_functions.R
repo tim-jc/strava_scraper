@@ -422,16 +422,15 @@ draw_critical_metric_curve <- function(metric_to_plot) {
     mutate(time_range_fct = if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min')),
            time_range_fct = factor(time_range_fct),
            time_range_fct = fct_reorder(time_range_fct, time_range),
-           link = str_glue("https://www.strava.com/activities/{id}"),
+           activity_url = str_glue("https://www.strava.com/activities/{id}"),
            hover_lbl = str_glue("Best {time_range_fct} {display_name} - {peak_period}
-                              {round(peak, digits = 1)}{units}
-                              Click point to open in Strava"))
+                              {round(peak, digits = 1)}{units}"))
   
   peaks_plot <- best_peaks %>% 
     filter(display_name == metric_to_plot, 
            rank == 1) %>% 
-    ggplot(aes(x = time_range_fct, y = peak, colour = peak_period,
-               fill = peak_period, group = peak_period, text = hover_lbl)) +
+    ggplot(aes(x = time_range_fct, y = peak, colour = peak_period, fill = peak_period,
+               group = peak_period, text = hover_lbl, customdata = activity_url)) +
     geom_point() +
     geom_area(position = "identity", alpha = 0.2) +
     theme_minimal() +
@@ -440,6 +439,19 @@ draw_critical_metric_curve <- function(metric_to_plot) {
          y = str_glue("{str_to_title(metric_to_plot)} /{local(units$units)}\n"))
   
   peaks_plot <- plotly::ggplotly(peaks_plot, tooltip = "text")
+  
+  # Render custom JS
+  peaks_plot <- peaks_plot %>% htmlwidgets::onRender("
+       function(el, x) {
+       
+         el.on('plotly_click', function(data) {
+           // retrieve url from the customdata field passed to ggplot
+           var url = data.points[0].customdata;
+           // open this url in the same window
+           window.open(url, \"_blank\");
+         });
+       
+       }")
   
   return(peaks_plot)
   
@@ -452,7 +464,7 @@ draw_ytd_curve <- function(metric_to_plot) {
     filter(name == metric_to_plot) %>% 
     mutate(hover_lbl = str_glue("{start_date_local}
                                  N = {round(value, 1)}"),
-           activity_url = str_glue("https://www.strava.com/activities/{id}"))
+           activity_url = str_glue("https://www.strava.com/activities/{activity_id}"))
   
   ytd_curve <- ytd_tbl %>% 
     ggplot(aes(x = yr_day, y = value, colour = yr_lbl)) +

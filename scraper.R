@@ -17,7 +17,11 @@ source("config.R")
 
 # Define values -----------------------------------------------------------
 
+# strava access token
 stoken <- get_strava_token(app_name, app_client_id, app_secret)
+
+# Initial ntfy message
+ntfy_msg <- "No new activities"
 
 # Get data ----------------------------------------------------------------
 
@@ -32,7 +36,10 @@ new_activities_to_load <- get_activity_data(strava_token = stoken,
                                             activities_to_exclude = c(activities_loaded, activities_to_remove))
 
 # Write new activities to DB
-if(nrow(new_activities_to_load) > 0) {dbWriteTable(con, "activities", new_activities_to_load, append = T)}
+if(nrow(new_activities_to_load) > 0) {
+  dbWriteTable(con, "activities", new_activities_to_load, append = T)
+  ntfy_msg <- str_glue("{row(new_activities_to_load)} activit{if_else(row(new_activities_to_load) == 1),'y','ies'} loaded\n")
+  }
 
 # Update streams ----------------------------------------------------------
 
@@ -55,3 +62,5 @@ walk(streams_to_get, calculate_activity_peaks)
 
 # Render dashboard
 rmarkdown::render("index.Rmd", output_file = "index.html", output_dir = "docs/")
+
+send_ntfy_message(ntfy_msg)

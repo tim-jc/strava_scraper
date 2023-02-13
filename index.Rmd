@@ -16,9 +16,6 @@ output:
 libs <- c("flexdashboard","tidyverse","plotly","leaflet","leaflet.extras","DBI","lubridate","mapdata", "stravR")
 purrr::walk(libs, ~library(.,character.only = T))
 
-# clear the memory
-rm(list=ls(all = TRUE))
-
 source("scraper_functions.R")
 
 ```
@@ -29,10 +26,10 @@ Summary
 Row
 -----------------------------------------------------------------------
 
-### Last refreshed
+### `r str_glue('{format(Sys.time(), "%H:%M:%S")}<br>last refreshed')`
 
 ```{r}
-valueBox(Sys.time(), icon = icon_str, color = "#EDF0F1")
+valueBox(format(Sys.time(), "%d %b %y"), color = "#EDF0F1")
 ```
 
 ### `r str_glue('Miles this year<br>({get_ytd_values("distance_mi")["pytd"]} pytd, {get_ytd_values("distance_mi")["pyr"]} py total)')`

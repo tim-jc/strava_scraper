@@ -239,6 +239,32 @@ draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride")
   print(activity_id)
 }
 
+send_ntfy_message <- function(msg_body,
+                              msg_url = "ntfy.sh/strava_stats_dashboard",
+                              msg_title = "Strava dashboard updated",
+                              msg_tags = "bike,chart_with_upwards_trend",
+                              msg_priority = "default",
+                              msg_link_url = "https://tim-jc.github.io/strava_scraper") {
+  
+  # Allowed priorities
+  allowed_priorites <- c("urgent", "high", "default", "low", "min")
+  
+  if(!msg_priority %in% allowed_priorites) {
+    stop(str_glue("Invalid priority level supplied; allowed values are '{str_flatten(allowed_priorites, collapse = \"', '\")}'"))
+  }
+  
+  # tags - if they match an emoji short code they'll be rendered as such, otherwise will appear as string
+  # tags should be supplied as a single string value with commas separating tags
+  response <- httr::POST(url = msg_url,
+                         body = msg_body,
+                         httr::add_headers(c("Title" = msg_title,
+                                             "Tags" = msg_tags,
+                                             "Priority" = msg_priority,
+                                             "Click" = msg_link_url)))
+  
+return(response)
+  
+}
 
 # Data quality functions --------------------------------------------------
 
@@ -429,9 +455,9 @@ draw_critical_metric_curve <- function(metric_to_plot) {
   peaks_plot <- best_peaks %>% 
     filter(display_name == metric_to_plot, 
            rank == 1) %>% 
-    ggplot(aes(x = time_range_fct, y = peak, colour = peak_period, fill = peak_period,
-               group = peak_period, text = hover_lbl, customdata = activity_url)) +
-    geom_point() +
+    ggplot(aes(x = time_range_fct, y = peak, colour = peak_period,
+               fill = peak_period, group = peak_period)) +
+    geom_point(aes(text = hover_lbl, customdata = activity_url)) +
     geom_area(position = "identity", alpha = 0.2) +
     theme_minimal() +
     theme(legend.position = "none") +

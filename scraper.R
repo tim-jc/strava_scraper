@@ -12,8 +12,15 @@ library(stravR)
 # clear the memory
 rm(list=ls(all = TRUE))
 
-source("scraper_functions.R")
-source("config.R")
+# wd
+setwd("~/Documents/Coding/R/Strava/strava_scraper/")
+
+# establish project root
+here::i_am("scraper.R")
+
+# Functions
+here::here("scraper_functions.R") %>% source()
+here::here("config.R") %>% source()
 
 # Define values -----------------------------------------------------------
 
@@ -61,6 +68,9 @@ walk(streams_to_get, calculate_activity_peaks)
 # Function to do this needs to be written!!
 
 # Render dashboard
-rmarkdown::render("index.Rmd", output_file = "index.html", output_dir = "docs/")
+rmarkdown::render(here::here("index.Rmd"), output_file = "index.html", output_dir = here::here("docs/"))
+
+# Push updated dashboard to git
+publish_to_git()
 
 send_ntfy_message(ntfy_msg)

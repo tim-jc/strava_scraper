@@ -1,9 +1,6 @@
 
 # Define values -----------------------------------------------------------
 
-# SQLite DB connection
-con <- DBI::dbConnect(RSQLite::SQLite(), "~/Documents/Coding/R/Strava/strava_data.db")
-
 # Manual activities to exclude (Strava API call fails if these aren't removed)
 activities_to_remove <- c(6317473692, 5686021341, 1358368751, 1222988207, 574040145, 543631692)
 

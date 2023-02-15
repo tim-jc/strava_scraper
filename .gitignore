@@ -45,3 +45,4 @@ config.R
 # Other
 .DS_Store
 *.pdf
+*.log

@@ -46,3 +46,4 @@ config.R
 .DS_Store
 *.pdf
 *.log
+*.sh

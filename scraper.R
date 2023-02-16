@@ -19,8 +19,8 @@ setwd("~/Documents/Coding/R/Strava/strava_scraper/")
 here::i_am("scraper.R")
 
 # Functions
-here::here("scraper_functions.R") %>% source()
 here::here("config.R") %>% source()
+here::here("scraper_functions.R") %>% source()
 
 # Define values -----------------------------------------------------------
 
@@ -32,9 +32,9 @@ ntfy_msg <- "No new activities"
 
 # Get data ----------------------------------------------------------------
 
-# Connect to SQLite DB, find data already loaded
-activities_loaded <- tbl(con, "activities") %>% pull(id) %>% unique()
-streams_loaded <- tbl(con, "streams") %>% pull(id) %>% unique()
+# Connect to MySQL/MariaDB, find data already loaded
+activities_loaded <- tbl(con, "activities") %>% select(id) %>% distinct() %>% pull(id)
+streams_loaded <- tbl(con, "streams") %>% select(id) %>% distinct() %>% pull(id)
 
 # Update activities -------------------------------------------------------
 

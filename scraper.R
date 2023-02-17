@@ -1,6 +1,6 @@
 # scraper.R
 # retrieve new activites from Strava and 
-# add to local SQLite database
+# add to MySQL database on RaspberryPi
 
 # libraries
 library(tidyverse)
@@ -48,7 +48,8 @@ if(nrow(new_activities_to_load) > 0) {
   ntfy_msg <- str_glue("{row(new_activities_to_load)} activit{if_else(row(new_activities_to_load) == 1),'y','ies'} loaded\n")
   }
 
-# Update streams ----------------------------------------------------------
+
+# Update streams and peaks ------------------------------------------------
 
 streams_to_get <- c(activities_loaded, new_activities_to_load$id)[!c(activities_loaded, new_activities_to_load$id) %in% streams_loaded]
 
@@ -64,8 +65,13 @@ for(strm in streams_to_get) {
 # Calculate peak performances from new activities and append to DB
 walk(streams_to_get, calculate_activity_peaks)
 
-# Run data quality checks (orphan activities, rides without peaks, etc)
-# Function to do this needs to be written!!
+
+# Data quality checks -----------------------------------------------------
+
+check_data_quality()
+
+
+# Render and publish ------------------------------------------------------
 
 # Render dashboard
 rmarkdown::render(here::here("index.Rmd"), output_file = "index.html", output_dir = here::here("docs/"))
@@ -73,4 +79,5 @@ rmarkdown::render(here::here("index.Rmd"), output_file = "index.html", output_di
 # Push updated dashboard to git
 publish_to_git()
 
+# Send notification
 send_ntfy_message(ntfy_msg)

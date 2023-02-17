@@ -71,17 +71,17 @@ ytd_stats <- tbl(con, "activities") %>%
 calculate_activity_peaks <- function(activity_id,
                                      peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
                                      peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
-  # Get actvity data
+  # Get activity data
   activities <- tbl(con, "activities") %>% collect()
   
   # Get stream for activity
   stream_sql <- tbl(con, "streams") %>% 
     filter(id == activity_id) %>%
     collect() %>%
-    left_join(activities %>% select(id, sport_type), by = "id") %>% 
-    select(time, sport_type, all_of(peaks_for)) 
+    left_join(activities %>% select(id, sport_type, moving_time), by = "id") %>% 
+    select(moving_time, time, sport_type, all_of(peaks_for)) 
   
-  peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$time)]
+  peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$moving_time)]
   
   # Get all time peaks
   # Calculate best ever and best this year
@@ -124,7 +124,7 @@ calculate_activity_peaks <- function(activity_id,
   # Then establish the width of any data gaps for later smoothing
   # Large data gaps will mean bike stopped - values should be set to zero - but small gaps can be filled
   peaks <- tibble(time = seq(0,max(stream_sql$time),1)) %>% 
-    left_join(stream_sql, by = "time") %>% 
+    left_join(distinct(stream_sql), by = "time") %>% 
     pivot_longer(-c(time, sport_type), names_to = "metric") %>% 
     filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
     arrange(metric, time) %>% 
@@ -262,7 +262,7 @@ check_data_quality <- function() {
   
   dq_msg <-  str_c(awp, aws, op, os) 
   
-  if(nchar(dq_msg > 0)) {
+  if(nchar(dq_msg) > 0) {
     send_ntfy_message(msg_body = dq_msg,
                       msg_title = "Strava data quality issue",
                       msg_tags = "x",

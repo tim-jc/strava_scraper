@@ -240,9 +240,36 @@ draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride")
 
 check_data_quality <- function() {
   
+  activities_loaded <- tbl(con, "activities") %>% select(id) %>% distinct() %>% pull(id)
+  streams_loaded <- tbl(con, "streams") %>% select(id) %>% distinct() %>% pull(id)
+  peaks_loaded <- tbl(con, "peaks") %>% select(id) %>% distinct() %>% pull(id)
+  
   # Check for activities without peaks
+  awp <- activities_loaded[!activities_loaded %in% peaks_loaded]
+  if(length(awp > 0)) {awp <- str_glue("Activities without peaks: {str_flatten(awp, collapse = ',')}\n\n")} else {awp = ""}
+  
   # Check for activities without streams
-  # Check for streams / peaks that are orphaned (i.e. not in activities)
+  aws <- activities_loaded[!activities_loaded %in% streams_loaded]
+  if(length(aws > 0)) {aws <- str_glue("Activities without streams: {str_flatten(aws, collapse = ',')}\n\n")} else {aws = ""}
+  
+  # Check for orphaned peaks (i.e. not in activities)
+  op <- peaks_loaded[!peaks_loaded %in% activities_loaded]
+  if(length(op > 0)) {op <- str_glue("Orphaned peaks: {str_flatten(op, collapse = ',')}\n\n")} else {op = ""}
+  
+  # Check for orphaned streams (i.e. not in activities)
+  os <- streams_loaded[!streams_loaded %in% activities_loaded]
+  if(length(os > 0)) {os <- str_glue("Orphaned streams: {str_flatten(os, collapse = ',')}\n\n")} else {os = ""}
+  
+  dq_msg <-  str_c(awp, aws, op, os) 
+  
+  if(nchar(dq_msg > 0)) {
+    send_ntfy_message(msg_body = dq_msg,
+                      msg_title = "Strava data quality issue",
+                      msg_tags = "x",
+                      msg_link_url = NA_character_)
+  }
+  
+  # Check date of most recent database backup
   
 }
 

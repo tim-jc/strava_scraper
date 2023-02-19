@@ -45,7 +45,7 @@ new_activities_to_load <- get_activity_data(strava_token = stoken,
 # Write new activities to DB
 if(nrow(new_activities_to_load) > 0) {
   dbWriteTable(con, "activities", new_activities_to_load, append = T)
-  ntfy_msg <- str_glue("{row(new_activities_to_load)} activit{if_else(row(new_activities_to_load) == 1),'y','ies'} loaded\n")
+  ntfy_msg <- str_glue("{nrow(new_activities_to_load)} activit{if_else(nrow(new_activities_to_load) == 1,'y','ies')} loaded\n")
   }
 
 

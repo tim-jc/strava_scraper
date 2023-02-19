@@ -125,7 +125,7 @@ calculate_activity_peaks <- function(activity_id,
   # Large data gaps will mean bike stopped - values should be set to zero - but small gaps can be filled
   peaks <- tibble(time = seq(0,max(stream_sql$time),1)) %>% 
     left_join(distinct(stream_sql), by = "time") %>% 
-    pivot_longer(-c(time, sport_type), names_to = "metric") %>% 
+    pivot_longer(-c(time, sport_type, moving_time), names_to = "metric") %>% 
     filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
     arrange(metric, time) %>% 
     mutate(has_data = !is.na(value),

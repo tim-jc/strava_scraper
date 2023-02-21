@@ -16,7 +16,7 @@ peaks_units <- tribble(
 
 # Assemble YTD stats
 ytd_stats <- tbl(con, "activities") %>%
-  select(id, start_date_local, distance, moving_time, kilojoules) %>% 
+  select(strava_id, start_date_local, distance, moving_time, kilojoules) %>% 
   collect() %>% 
   filter(start_date_local >= floor_date(Sys.Date() - years(1), "year")) %>% 
   mutate(yr = year(start_date_local),
@@ -32,7 +32,7 @@ ytd_stats <- tbl(con, "activities") %>%
          ytd_energy_kcal = cumsum(replace_na(kilojoules,0)),
          ytd_longest_ride = max(distance_mi[yr_day <= yday(Sys.Date())], na.rm = T),
          yr_longest_ride = max(distance_mi, na.rm = T)) %>% 
-  select(id, distance_mi, start_date_local, ton, matches("^yr|^ytd")) %>% 
+  select(strava_id, distance_mi, start_date_local, ton, matches("^yr|^ytd")) %>% 
   mutate(start_date_local = as.Date(start_date_local)) %>% 
   group_by(start_date_local, yr, yr_day) %>% 
   summarise(ytd_distance_mi = max(ytd_distance_mi),
@@ -43,7 +43,7 @@ ytd_stats <- tbl(con, "activities") %>%
             ytd_longest_ride = max(ytd_longest_ride, na.rm = T),
             yr_longest_ride = max(yr_longest_ride, na.rm = T),
             activity_day = TRUE,
-            activity_id = id[distance_mi == max(distance_mi)],
+            activity_id = strava_id[distance_mi == max(distance_mi)],
             .groups = "drop") %>% 
   group_by(yr) %>% 
   mutate(yr_distance_mi = max(ytd_distance_mi),
@@ -76,9 +76,9 @@ calculate_activity_peaks <- function(activity_id,
   
   # Get stream for activity
   stream_sql <- tbl(con, "streams") %>% 
-    filter(id == activity_id) %>%
+    filter(strava_id == activity_id) %>%
     collect() %>%
-    left_join(activities %>% select(id, sport_type, moving_time), by = "id") %>% 
+    left_join(activities %>% select(strava_id, sport_type, moving_time), by = "strava_id") %>% 
     select(moving_time, time, sport_type, all_of(peaks_for)) 
   
   peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$moving_time)]
@@ -87,10 +87,10 @@ calculate_activity_peaks <- function(activity_id,
   # Calculate best ever and best this year
   peaks_sql <- tbl(con, "peaks") %>% 
     filter(peak > 0) %>% 
-    left_join(tbl(con, "activities") %>% select(id, start_date_local, sport_type), by = "id") %>% 
+    left_join(tbl(con, "activities") %>% select(strava_id, start_date_local, sport_type), by = "strava_id") %>% 
     collect()
   
-  if(activity_id %in% peaks_sql$id) {
+  if(activity_id %in% peaks_sql$strava_id) {
     stop(str_glue("Activity ID {activity_id} has already had peaks calculated. Remove from SQL table if re-calculation needed."))
   }
   
@@ -105,17 +105,17 @@ calculate_activity_peaks <- function(activity_id,
   
   # Create distance "peaks", combine with other peaks (exclude current activity so it isn't compared
   # to itself)
-  distance_peaks <- bind_rows(activities %>% filter(id != activity_id) %>% 
+  distance_peaks <- bind_rows(activities %>% filter(strava_id != activity_id) %>% 
                                 slice_max(distance, n = 3) %>%
                                 mutate(peak_period = "All time", 
                                        rank = row_number()),
-                              activities %>% filter(id != activity_id,
+                              activities %>% filter(strava_id != activity_id,
                                                     year(start_date_local) == year(Sys.Date())) %>%
                                 slice_max(distance, n = 3) %>%
                                 mutate(peak_period = "Current year",
                                        rank = row_number())) %>% 
     mutate(metric = "distance") %>% 
-    select(id, metric, peak = distance, start_date_local, sport_type, peak_period, rank)
+    select(strava_id, metric, peak = distance, start_date_local, sport_type, peak_period, rank)
   
   best_peaks <- bind_rows(best_peaks,
                           distance_peaks)
@@ -146,16 +146,16 @@ calculate_activity_peaks <- function(activity_id,
     select(-matches("has_data"), -gap_size, -val2) %>% 
     nest(data = !metric) %>% 
     crossing(time_range = peak_time_ranges) %>% 
-    mutate(id = activity_id,
+    mutate(strava_id = activity_id,
            time_range_means = map2(data, time_range, ~slide_dbl(.x$value, .f = mean, .after = (.y - 1), .complete = T)),
            peak = map_dbl(time_range_means, ~max(., na.rm = T))) %>% 
-    select(id, metric, time_range, peak)
+    select(strava_id, metric, time_range, peak)
   
   # Bind on distance "peak" for activity in question
   distance_peak <- activities %>% 
-    filter(id == activity_id) %>% 
+    filter(strava_id == activity_id) %>% 
     mutate(metric = "distance") %>% 
-    select(id, metric, peak = distance)
+    select(strava_id, metric, peak = distance)
   
   peaks <- bind_rows(peaks,
                      distance_peak)
@@ -189,14 +189,14 @@ draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride")
   # Limit activity ids to those of the selected types
   all_type_id <- tbl(con, "activities") %>% 
     filter(type %in% activity_types) %>% 
-    pull(id)
+    pull(strava_id)
   
   activity_id <- activity_id[activity_id %in% all_type_id]
   
   
   streams <- tbl(con, "streams") %>%
-    select(id, lat, lng) %>% 
-    filter(id %in% activity_id) %>% 
+    select(strava_id, lat, lng) %>% 
+    filter(strava_id %in% activity_id) %>% 
     collect() %>% 
     filter(row_number() %% 10 == 1) # select every 10th row -> speed up the plotting of the map
   
@@ -205,9 +205,9 @@ draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride")
     leaflet::addTiles(urlTemplate = "https://tiles.stadiamaps.com/tiles/outdoors/{z}/{x}/{y}{r}.png")
   
   # Add on each ride
-  for(ride_id in unique(streams$id)) {
+  for(ride_id in unique(streams$strava_id)) {
     
-    ride_stream <- streams %>% filter(id == ride_id)
+    ride_stream <- streams %>% filter(strava_id == ride_id)
     
     leaflet_map <- leaflet_map %>% 
       leaflet::addPolylines(ride_stream$lng, ride_stream$lat,
@@ -240,9 +240,9 @@ draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride")
 
 check_data_quality <- function() {
   
-  activities_loaded <- tbl(con, "activities") %>% select(id) %>% distinct() %>% pull(id)
-  streams_loaded <- tbl(con, "streams") %>% select(id) %>% distinct() %>% pull(id)
-  peaks_loaded <- tbl(con, "peaks") %>% select(id) %>% distinct() %>% pull(id)
+  activities_loaded <- tbl(con, "activities") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
+  streams_loaded <- tbl(con, "streams") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
+  peaks_loaded <- tbl(con, "peaks") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   
   # Check for activities without peaks
   awp <- activities_loaded[!activities_loaded %in% peaks_loaded]
@@ -309,7 +309,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
   # start_location - bounding box passed as NSEW vector, e.g. c(51, 50, 1, 0))
   
   if(all(is.na(activity_id))) {
-    activity_id <- tbl(con, "activities") %>% pull(id) %>% unique()
+    activity_id <- tbl(con, "activities") %>% pull(strava_id) %>% unique()
   }
   
   # If bounding box supplied (i.e. 4 element list)
@@ -329,8 +329,8 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
              start_lat >= bbox_south,
              start_lng <= bbox_east,
              start_lng >= bbox_west,
-             id %in% activity_id) %>%
-      pull(id) %>% unique()
+             strava_id %in% activity_id) %>%
+      pull(strava_id) %>% unique()
     
   }
   
@@ -340,8 +340,8 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
       collect() %>% 
       mutate(start_date_local = as.Date(start_date_local)) %>% 
       filter(start_date_local %in% start_dates,
-             id %in% activity_id) %>%
-      pull(id) %>% unique()
+             strava_id %in% activity_id) %>%
+      pull(strava_id) %>% unique()
   }
   
   # If vector of years supplied
@@ -350,8 +350,8 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
       collect() %>% 
       mutate(start_yr = year(start_date_local)) %>% 
       filter(start_yr %in% start_years,
-             id %in% activity_id) %>%
-      pull(id) %>% unique()
+             strava_id %in% activity_id) %>%
+      pull(strava_id) %>% unique()
   }
   
   # If minimum distance supplied
@@ -360,8 +360,8 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
       collect() %>% 
       mutate(distance_miles = distance / 1609.34) %>% 
       filter(distance_miles >=  min_distance,
-             id %in% activity_id) %>%
-      pull(id) %>% unique()
+             strava_id %in% activity_id) %>%
+      pull(strava_id) %>% unique()
   }
   
   if(all(!is.na(prev_bbox))) {
@@ -388,7 +388,7 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
   # visiting_location - bounding box passed as NSEW vector, e.g. c(51, 50, 1, 0))
   
   if(all(is.na(activity_id))) {
-    activity_id <- tbl(con, "activities") %>% pull(id) %>% unique()
+    activity_id <- tbl(con, "activities") %>% pull(strava_id) %>% unique()
   }
   
   # If bounding box supplied (i.e. 4 element list)
@@ -408,8 +408,8 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
              lat >= bbox_south,
              lng <= bbox_east,
              lng >= bbox_west,
-             id %in% activity_id) %>%
-      pull(id) %>% unique()
+             strava_id %in% activity_id) %>%
+      pull(strava_id) %>% unique()
     
   }
   
@@ -444,10 +444,8 @@ draw_critical_metric_curve <- function(metric_to_plot) {
   
   # Get all time peaks
   # Calculate best ever and best this year
-  peaks_sql <- tbl(con, "peaks") %>% 
-    filter(peak > 0,
-           metric == local(units$metric)) %>% 
-    left_join(tbl(con, "activities") %>% select(id, start_date_local, sport_type), by = "id") %>% 
+  peaks_sql <- tbl(con, "vw_peaks") %>% 
+    filter(metric == local(units$metric)) %>% 
     collect()
   
   best_peaks <- peaks_sql %>%
@@ -463,7 +461,7 @@ draw_critical_metric_curve <- function(metric_to_plot) {
     mutate(time_range_fct = if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min')),
            time_range_fct = factor(time_range_fct),
            time_range_fct = fct_reorder(time_range_fct, time_range),
-           activity_url = str_glue("https://www.strava.com/activities/{id}"),
+           activity_url = str_glue("https://www.strava.com/activities/{strava_id}"),
            hover_lbl = str_glue("Best {time_range_fct} {display_name} - {peak_period}
                               {round(peak, digits = 1)}{units}"))
   
@@ -583,9 +581,9 @@ draw_map <- function(streams_tbl) {
                '&copy; <a href="https://cartodb.com/attributions">CartoDB</a>'
              )) 
   
-  for(i in unique(streams_tbl$id)) {
+  for(i in unique(streams_tbl$strava_id)) {
     
-    map <- map %>% add_track(streams_tbl %>% filter(id == i))
+    map <- map %>% add_track(streams_tbl %>% filter(strava_id == i))
     
   }
   
@@ -601,7 +599,7 @@ draw_ytd_map <- function() {
            start_date_local >= floor_date(Sys.Date(), "year"))
   
   ytd_streams <- tbl(con, "streams") %>% 
-    filter(id %in% local(ytd_activities$id)) %>% 
+    filter(strava_id %in% local(ytd_activities$strava_id)) %>% 
     collect()
   
   map <- draw_map(ytd_streams)

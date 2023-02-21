@@ -22,6 +22,9 @@ here::i_am("scraper.R")
 here::here("config.R") %>% source()
 here::here("scraper_functions.R") %>% source()
 
+# Clear log files
+file.remove("scraper.log")
+
 # Define values -----------------------------------------------------------
 
 # strava access token
@@ -33,8 +36,8 @@ ntfy_msg <- "No new activities"
 # Get data ----------------------------------------------------------------
 
 # Connect to MySQL/MariaDB, find data already loaded
-activities_loaded <- tbl(con, "activities") %>% select(id) %>% distinct() %>% pull(id)
-streams_loaded <- tbl(con, "streams") %>% select(id) %>% distinct() %>% pull(id)
+activities_loaded <- tbl(con, "activities") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
+streams_loaded <- tbl(con, "streams") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
 
 # Update activities -------------------------------------------------------
 
@@ -69,7 +72,6 @@ walk(streams_to_get, calculate_activity_peaks)
 # Data quality checks -----------------------------------------------------
 
 check_data_quality()
-
 
 # Render and publish ------------------------------------------------------
 

@@ -260,7 +260,29 @@ check_data_quality <- function() {
   os <- streams_loaded[!streams_loaded %in% activities_loaded]
   if(length(os > 0)) {os <- str_glue("Orphaned streams: {str_flatten(os, collapse = ',')}\n\n")} else {os = ""}
   
-  dq_msg <-  str_c(awp, aws, op, os) 
+  # Check date of most recent database backup
+  backup_path <- "~/Documents/Coding/R/Strava/"
+  file_nm_ptrn <- "pi_db_backup_\\d{4}-\\d{2}-\\d{2}.sql"
+  backup_files <- enframe(
+    list.files(path = backup_path, pattern = file_nm_ptrn),
+    name = "date",
+    value = "file_name"
+  ) %>% mutate(date = str_extract(file_name, "\\d{4}-\\d{2}-\\d{2}"),
+               date = ymd(date),
+               backup_rank = row_number(desc(date)))
+  
+  # Find most recent, warn if no backup for last 30 days
+  days_since_last_backup <- difftime(Sys.Date(), max(backup_files$date), units = "days") %>% as.numeric()
+  
+  if(days_since_last_backup > 30) {dslb <- str_glue("No database backups for {days_since_last_backup} days\n\n")} else {dslb = ""}
+  
+  # Clean up old backups, leaving most recent 3
+  backup_files_to_del <- backup_files %>%
+    filter(backup_rank > 3)
+  
+  if(nrow(backup_files_to_del) > 0) { str_c(backup_path, backup_files_to_del$file_name) %>% walk(.f = file.remove) }
+  
+  dq_msg <-  str_c(awp, aws, op, os, dslb) 
   
   if(nchar(dq_msg) > 0) {
     send_ntfy_message(msg_body = dq_msg,
@@ -268,9 +290,7 @@ check_data_quality <- function() {
                       msg_tags = "x",
                       msg_link_url = NA_character_)
   }
-  
-  # Check date of most recent database backup
-  
+ 
 }
 
 # Ride finder functions ---------------------------------------------------
@@ -353,9 +373,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
   } else {
     prev_bbox <- list(start_location)
   }
-  
-  
-  
+ 
   activity_bbox <- list(activity_id, prev_bbox)
   
   return(activity_bbox)

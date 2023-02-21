@@ -23,7 +23,7 @@ here::here("config.R") %>% source()
 here::here("scraper_functions.R") %>% source()
 
 # Clear log files
-file.remove("scraper.log")
+writeLines("", "scraper.log")
 
 # Define values -----------------------------------------------------------
 

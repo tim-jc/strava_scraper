@@ -79,7 +79,38 @@ get_ftp_values <- function() {
   
   return(ftp)
 
-  }
+}
+
+clean_stream_data <- function(stream, metrics_to_clean) {
+  
+  cleaned_stream <- tibble(time = seq(0,max(stream$time),1)) %>% 
+    left_join(distinct(stream), by = "time") %>% 
+    pivot_longer(cols = all_of(metrics_to_clean), names_to = "metric") %>% 
+    fill(c(moving_time, sport_type)) %>% 
+    filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
+    arrange(metric, time) %>%
+    mutate(has_data = !is.na(value),
+           has_data_group_id = row_number(),
+           prev_has_data = lag(has_data),
+           has_data_group_id = case_when(is.na(prev_has_data) ~ has_data_group_id,
+                                         has_data != prev_has_data ~ has_data_group_id,
+                                         T ~ NA_integer_)) %>%
+    fill(has_data_group_id, .direction = "down") %>%
+    group_by(has_data_group_id) %>%
+    mutate(gap_size = n(),
+           val2 = value) %>%
+    ungroup() %>%
+    fill(val2, .direction = "down") %>%
+    mutate(value = case_when(is.na(value) & gap_size <= 10 ~ val2,
+                             is.na(value) ~ 0,
+                             T ~ value)) %>%
+    select(-matches("has_data"), -gap_size, -val2) %>%
+    pivot_wider(names_from = "metric",
+                values_from = "value")
+  
+  return(cleaned_stream)
+  
+}
 
 calculate_activity_peaks <- function(activity_id,
                                      peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
@@ -88,19 +119,17 @@ calculate_activity_peaks <- function(activity_id,
   activities <- tbl(con, "activities") %>% collect()
   
   # Get stream for activity
-  stream_sql <- tbl(con, "streams") %>% 
+  stream_sql <- tbl(con, "vw_streams") %>% 
     filter(strava_id == activity_id) %>%
-    collect() %>%
-    left_join(activities %>% select(strava_id, sport_type, moving_time), by = "strava_id") %>% 
-    select(moving_time, time, sport_type, all_of(peaks_for)) 
+    select(moving_time, time, sport_type, all_of(peaks_for)) %>%
+    collect()
   
   peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$moving_time)]
   
   # Get all time peaks
   # Calculate best ever and best this year
-  peaks_sql <- tbl(con, "peaks") %>% 
+  peaks_sql <- tbl(con, "vw_peaks") %>% 
     filter(peak > 0) %>% 
-    left_join(tbl(con, "activities") %>% select(strava_id, start_date_local, sport_type), by = "strava_id") %>% 
     collect()
   
   if(activity_id %in% peaks_sql$strava_id) {
@@ -136,27 +165,10 @@ calculate_activity_peaks <- function(activity_id,
   # Ensure a row present for every second of the entire activity (no data recorded when stopped)
   # Then establish the width of any data gaps for later smoothing
   # Large data gaps will mean bike stopped - values should be set to zero - but small gaps can be filled
-  peaks <- tibble(time = seq(0,max(stream_sql$time),1)) %>% 
-    left_join(distinct(stream_sql), by = "time") %>% 
-    pivot_longer(-c(time, sport_type, moving_time), names_to = "metric") %>% 
-    filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
-    arrange(metric, time) %>% 
-    mutate(has_data = !is.na(value),
-           has_data_group_id = row_number(),
-           prev_has_data = lag(has_data),
-           has_data_group_id = case_when(is.na(prev_has_data) ~ has_data_group_id,
-                                         has_data != prev_has_data ~ has_data_group_id,
-                                         T ~ NA_integer_)) %>% 
-    fill(has_data_group_id, .direction = "down") %>% 
-    group_by(has_data_group_id) %>% 
-    mutate(gap_size = n(),
-           val2 = value) %>% 
-    ungroup() %>% 
-    fill(val2, .direction = "down") %>% 
-    mutate(value = case_when(is.na(value) & gap_size <= 10 ~ val2,
-                             is.na(value) ~ 0,
-                             T ~ value)) %>% 
-    select(-matches("has_data"), -gap_size, -val2) %>% 
+  peaks <- clean_stream_data(stream_sql, peaks_for)
+    
+  peaks <- peaks %>%
+    pivot_longer(all_of(peaks_for), names_to = "metric") %>% 
     nest(data = !metric) %>% 
     crossing(time_range = peak_time_ranges) %>% 
     mutate(strava_id = activity_id,

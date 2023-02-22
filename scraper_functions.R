@@ -68,6 +68,19 @@ ytd_stats <- tbl(con, "activities") %>%
 
 # Scraper functions -------------------------------------------------------
 
+get_ftp_values <- function() {
+  
+  ftp <- tbl(con, "ftp_history") %>%
+    collect() %>% 
+    mutate(ftp_from = ftp_date,
+           ftp_to = lead(ftp_date)) %>% 
+    replace_na(list(ftp_to = Sys.time())) %>% 
+    select(-ftp_id, -ftp_date)
+  
+  return(ftp)
+
+  }
+
 calculate_activity_peaks <- function(activity_id,
                                      peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
                                      peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {

@@ -81,32 +81,34 @@ get_ftp_values <- function() {
 
 }
 
-clean_stream_data <- function(stream, metrics_to_clean) {
+clean_stream_data <- function(stream, metrics_to_clean, gap_size_to_fill = 10) {
   
   cleaned_stream <- tibble(time = seq(0,max(stream$time),1)) %>% 
     left_join(distinct(stream), by = "time") %>% 
     pivot_longer(cols = all_of(metrics_to_clean), names_to = "metric") %>% 
-    fill(c(moving_time, sport_type)) %>% 
-    filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
+    fill(-c(metric,value), .direction = "down") %>% 
     arrange(metric, time) %>%
+    group_by(metric) %>% 
     mutate(has_data = !is.na(value),
-           has_data_group_id = row_number(),
+           has_data_group_id = str_c(metric,time),
            prev_has_data = lag(has_data),
            has_data_group_id = case_when(is.na(prev_has_data) ~ has_data_group_id,
                                          has_data != prev_has_data ~ has_data_group_id,
-                                         T ~ NA_integer_)) %>%
+                                         T ~ NA_character_)) %>%
     fill(has_data_group_id, .direction = "down") %>%
+    ungroup() %>% 
     group_by(has_data_group_id) %>%
     mutate(gap_size = n(),
            val2 = value) %>%
     ungroup() %>%
     fill(val2, .direction = "down") %>%
-    mutate(value = case_when(is.na(value) & gap_size <= 10 ~ val2,
+    mutate(value = case_when(is.na(value) & gap_size <= gap_size_to_fill ~ val2,
                              is.na(value) ~ 0,
                              T ~ value)) %>%
     select(-matches("has_data"), -gap_size, -val2) %>%
     pivot_wider(names_from = "metric",
-                values_from = "value")
+                values_from = "value") %>% 
+    mutate(moving = velocity_smooth > 0)
   
   return(cleaned_stream)
   
@@ -169,6 +171,7 @@ calculate_activity_peaks <- function(activity_id,
     
   peaks <- peaks %>%
     pivot_longer(all_of(peaks_for), names_to = "metric") %>% 
+    filter(!(sport_type == "VirtualRide" & metric == "velocity_smooth")) %>% # exclude speed metrics from virtual rides
     nest(data = !metric) %>% 
     crossing(time_range = peak_time_ranges) %>% 
     mutate(strava_id = activity_id,
@@ -203,6 +206,45 @@ calculate_activity_peaks <- function(activity_id,
   dbWriteTable(con, "peaks", peaks %>% filter(metric != "distance"), append = T)
   
   str_glue("Peak efforts for activity {activity_id} appended to database.") %>% print()
+  
+}
+
+calculate_power_summary <- function(activity_id) {
+  
+  power_summaries_loaded <- tbl(con, "power_summaries") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
+  
+  activity_stream <- tbl(con, "vw_streams") %>% 
+    select(strava_id, start_date_local, sport_type, time, moving_time, watts, velocity_smooth) %>% 
+    filter(strava_id == activity_id) %>% collect()
+  
+  stream_cleaned <- clean_stream_data(activity_stream, c("watts"))
+  
+  power_summary <- stream_cleaned %>%
+    filter(moving) %>% 
+    mutate(start_date_local = as.POSIXct(start_date_local)) %>% 
+    left_join(get_ftp_values(),
+              by = join_by(between(start_date_local, ftp_from, ftp_to))) %>% 
+    group_by(strava_id, start_date_local, ftp, moving_time) %>% 
+    mutate(mean_power_30s = slide_dbl(watts, .f = mean, .before = 29, .complete = T),
+           mean_power_30s_4p = mean_power_30s^4,
+           contiguous_30s = lag(time, 29) == (time - 29)) %>% 
+    filter(contiguous_30s) %>% 
+    summarise(NP = (mean(mean_power_30s_4p, na.rm = T))^(1/4),
+              mean_power = mean(watts, na.rm = T),
+              .groups = "drop") %>% 
+    select(-start_date_local) %>% 
+    mutate(VI = NP / mean_power,
+           IF = NP / ftp,
+           TSS = ((moving_time * NP * IF) / (ftp * 3600)) * 100)
+  
+  if(activity_id %in% power_summaries_loaded) {
+    stop(str_glue("Activity ID {activity_id} has already had a power summary calculated. Remove from SQL table if re-calculation needed."))
+  }
+  
+  # Append to power summary table
+  dbWriteTable(con, "power_summaries", power_summary, append = T)
+  
+  str_glue("Power summary efforts for activity {activity_id} appended to database.") %>% print()
   
 }
 
@@ -268,6 +310,7 @@ check_data_quality <- function() {
   activities_loaded <- tbl(con, "activities") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   streams_loaded <- tbl(con, "streams") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   peaks_loaded <- tbl(con, "peaks") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
+  power_summaries_loaded <- tbl(con, "power_summaries") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   
   # Check for activities without peaks
   awp <- activities_loaded[!activities_loaded %in% peaks_loaded]
@@ -276,6 +319,10 @@ check_data_quality <- function() {
   # Check for activities without streams
   aws <- activities_loaded[!activities_loaded %in% streams_loaded]
   if(length(aws > 0)) {aws <- str_glue("Activities without streams: {str_flatten(aws, collapse = ',')}\n\n")} else {aws = ""}
+  
+  # Check for activities without power summaries
+  awps <- activities_loaded[!activities_loaded %in% power_summaries_loaded]
+  if(length(awps > 0)) {awps <- str_glue("Activities without power summaries: {str_flatten(awps, collapse = ',')}\n\n")} else {awps = ""}
   
   # Check for orphaned peaks (i.e. not in activities)
   op <- peaks_loaded[!peaks_loaded %in% activities_loaded]
@@ -307,7 +354,7 @@ check_data_quality <- function() {
   
   if(nrow(backup_files_to_del) > 0) { str_c(backup_path, backup_files_to_del$file_name) %>% walk(.f = file.remove) }
   
-  dq_msg <-  str_c(awp, aws, op, os, dslb) 
+  dq_msg <-  str_c(awp, aws, awps, op, os, dslb) 
   
   if(nchar(dq_msg) > 0) {
     send_ntfy_message(msg_body = dq_msg,

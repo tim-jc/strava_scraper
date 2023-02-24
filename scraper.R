@@ -22,8 +22,6 @@ here::i_am("scraper.R")
 here::here("config.R") %>% source()
 here::here("scraper_functions.R") %>% source()
 
-# Clear log files
-writeLines("", "scraper.log")
 
 # Define values -----------------------------------------------------------
 
@@ -54,7 +52,7 @@ if(nrow(new_activities_to_load) > 0) {
 
 # Update streams and peaks ------------------------------------------------
 
-streams_to_get <- c(activities_loaded, new_activities_to_load$id)[!c(activities_loaded, new_activities_to_load$id) %in% streams_loaded]
+streams_to_get <- c(activities_loaded, new_activities_to_load$strava_id)[!c(activities_loaded, new_activities_to_load$strava_id) %in% streams_loaded]
 
 # Get stream data from Strava and append to DB
 for(strm in streams_to_get) {
@@ -68,6 +66,8 @@ for(strm in streams_to_get) {
 # Calculate peak performances from new activities and append to DB
 walk(streams_to_get, calculate_activity_peaks)
 
+# Calculate power summary
+walk(streams_to_get, calculate_power_summary)
 
 # Data quality checks -----------------------------------------------------
 

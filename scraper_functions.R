@@ -73,7 +73,8 @@ get_ftp_values <- function() {
   ftp <- tbl(con, "ftp_history") %>%
     collect() %>% 
     mutate(ftp_from = ftp_date,
-           ftp_to = lead(ftp_date)) %>% 
+           ftp_to = lead(ftp_date),
+           latest = ftp_from == max(ftp_from)) %>% 
     replace_na(list(ftp_to = Sys.time())) %>% 
     select(-ftp_id, -ftp_date)
   
@@ -195,13 +196,43 @@ calculate_activity_peaks <- function(activity_id,
     filter(current_peak > peak) %>% 
     slice_min(rank) %>% 
     left_join(peaks_units, by = "metric") %>% 
-    mutate(msg = str_glue("{peak_period}: {if_else(rank == 1,'B',str_c(scales::ordinal(rank), ' b'))}est {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {display_name} - {round(current_peak*multiplier,1)}{units}"),
+    mutate(msg_period = str_glue("\n\n{peak_period}:\n\n"),
+           msg = str_glue("- {if_else(rank == 1,'B',str_c(scales::ordinal(rank), ' b'))}est {if_else(time_range < 60, str_c(time_range,'s'), str_c(time_range/60,'min'))} {display_name} - {round(current_peak*multiplier,1)}{units}\n\n"),
            msg = str_remove(msg, "NA "))
   
+  # Notification of new peaks
   if(nrow(peaks_compare) > 0) {
-    walk(peaks_compare$msg, print)
+    peaks_ntfy_msg <- peaks_compare %>% 
+      group_by(msg_period) %>% 
+      summarise(msg = str_flatten(msg)) %>% 
+      pivot_longer(everything()) %>% 
+      summarise(msg = str_flatten(value)) %>% 
+      pull(msg)
+      
+    send_ntfy_message(msg_body = peaks_ntfy_msg,
+                      msg_title = "New peaks found!",
+                      msg_tags = "fire,muscle")
+
   }
   
+  # Notification of new FTP
+  ftp <- get_ftp_values() %>% 
+    filter(latest) %>%
+    pull(ftp)
+  
+  best_20min_w <- peaks %>% 
+    filter(metric == "watts",
+           time_range == 1200) %>% 
+    pull(peak)
+  
+  if(0.95 * best_20min_w > ftp){
+    
+    send_ntfy_message(msg_title = "New FTP found!",
+                      msg_body = str_glue("New FTP: {round(0.95*best_20min_w)}w"),
+                      msg_tags = "fire,fire,fire")
+
+  }
+ 
   # Append to peaks table
   dbWriteTable(con, "peaks", peaks %>% filter(metric != "distance"), append = T)
   

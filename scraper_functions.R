@@ -99,17 +99,20 @@ clean_stream_data <- function(stream, metrics_to_clean, gap_size_to_fill = 10) {
     fill(has_data_group_id, .direction = "down") %>%
     ungroup() %>% 
     group_by(has_data_group_id) %>%
-    mutate(gap_size = n(),
+    mutate(group_size = n(),
            val2 = value) %>%
     ungroup() %>%
     fill(val2, .direction = "down") %>%
-    mutate(value = case_when(is.na(value) & gap_size <= gap_size_to_fill ~ val2,
+    mutate(value = case_when(is.na(value) & group_size <= gap_size_to_fill ~ val2,
                              is.na(value) ~ 0,
                              T ~ value)) %>%
-    select(-matches("has_data"), -gap_size, -val2) %>%
+    replace_na(list(value = 0)) %>% 
+    select(-matches("has_data"), -group_size, -val2) %>%
     pivot_wider(names_from = "metric",
                 values_from = "value") %>% 
-    mutate(moving = velocity_smooth > 0)
+    mutate(moving = case_when(watts > 0 ~ T,
+                                  moving == 1 & velocity_smooth > 2 ~ T,
+                                  .default = F))
   
   return(cleaned_stream)
   
@@ -124,7 +127,7 @@ calculate_activity_peaks <- function(activity_id,
   # Get stream for activity
   stream_sql <- tbl(con, "vw_streams") %>% 
     filter(strava_id == activity_id) %>%
-    select(moving_time, time, sport_type, all_of(peaks_for)) %>%
+    select(moving_time, moving, time, sport_type, all_of(peaks_for)) %>%
     collect()
   
   peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$moving_time)]
@@ -136,7 +139,7 @@ calculate_activity_peaks <- function(activity_id,
     collect()
   
   if(activity_id %in% peaks_sql$strava_id) {
-    stop(str_glue("Activity ID {activity_id} has already had peaks calculated. Remove from SQL table if re-calculation needed."))
+    stop(str_glue("Activity ID {activity_id} has already had peaks calculated. Remove from SQL table if re-calculation required."))
   }
   
   best_peaks <- peaks_sql %>%
@@ -245,7 +248,7 @@ calculate_power_summary <- function(activity_id) {
   power_summaries_loaded <- tbl(con, "power_summaries") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   
   activity_stream <- tbl(con, "vw_streams") %>% 
-    select(strava_id, start_date_local, sport_type, time, moving_time, watts, velocity_smooth) %>% 
+    select(strava_id, start_date_local, sport_type, time, moving_time, moving, watts, velocity_smooth) %>% 
     filter(strava_id == activity_id) %>% collect()
   
   stream_cleaned <- clean_stream_data(activity_stream, c("watts"))
@@ -274,7 +277,7 @@ calculate_power_summary <- function(activity_id) {
   
   # Append to power summary table
   dbWriteTable(con, "power_summaries", power_summary, append = T)
-  
+
   str_glue("Power summary efforts for activity {activity_id} appended to database.") %>% print()
   
 }
@@ -343,6 +346,8 @@ check_data_quality <- function() {
   peaks_loaded <- tbl(con, "peaks") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   power_summaries_loaded <- tbl(con, "power_summaries") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   
+  non_ride_activities <- tbl(con, "activities") %>% filter(!sport_type %in% c("Ride","VirtualRide")) %>% pull(strava_id)
+  
   # Check for activities without peaks
   awp <- activities_loaded[!activities_loaded %in% peaks_loaded]
   if(length(awp > 0)) {awp <- str_glue("Activities without peaks: {str_flatten(awp, collapse = ',')}\n\n")} else {awp = ""}
@@ -352,7 +357,7 @@ check_data_quality <- function() {
   if(length(aws > 0)) {aws <- str_glue("Activities without streams: {str_flatten(aws, collapse = ',')}\n\n")} else {aws = ""}
   
   # Check for activities without power summaries
-  awps <- activities_loaded[!activities_loaded %in% power_summaries_loaded]
+  awps <- activities_loaded[!activities_loaded %in% c(power_summaries_loaded,non_ride_activities)]
   if(length(awps > 0)) {awps <- str_glue("Activities without power summaries: {str_flatten(awps, collapse = ',')}\n\n")} else {awps = ""}
   
   # Check for orphaned peaks (i.e. not in activities)
@@ -380,8 +385,7 @@ check_data_quality <- function() {
   if(days_since_last_backup > 30) {dslb <- str_glue("No database backups for {days_since_last_backup} days\n\n")} else {dslb = ""}
   
   # Clean up old backups, leaving most recent 3
-  backup_files_to_del <- backup_files %>%
-    filter(backup_rank > 3)
+  backup_files_to_del <- backup_files %>% filter(backup_rank > 3)
   
   if(nrow(backup_files_to_del) > 0) { str_c(backup_path, backup_files_to_del$file_name) %>% walk(.f = file.remove) }
   

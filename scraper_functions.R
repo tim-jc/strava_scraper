@@ -223,17 +223,19 @@ calculate_activity_peaks <- function(activity_id,
     filter(latest) %>%
     pull(ftp)
   
-  best_20min_w <- peaks %>% 
-    filter(metric == "watts",
-           time_range == 1200) %>% 
-    pull(peak)
-  
-  if(0.95 * best_20min_w > ftp){
+  if(max(peak_time_ranges) >= 1200) {
     
-    send_ntfy_message(msg_title = "New FTP found!",
-                      msg_body = str_glue("New FTP: {round(0.95*best_20min_w)}w"),
-                      msg_tags = "fire,fire,fire")
-
+    best_20min_w <- peaks %>% 
+      filter(metric == "watts",
+             time_range == 1200) %>% 
+      pull(peak)
+    
+    if(0.95 * best_20min_w > ftp){
+      
+      send_ntfy_message(msg_title = "New FTP found!",
+                        msg_body = str_glue("New FTP: {round(0.95*best_20min_w)}w"),
+                        msg_tags = "fire,fire,fire")
+    }
   }
  
   # Append to peaks table

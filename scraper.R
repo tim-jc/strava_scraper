@@ -23,6 +23,7 @@ here::here("config.R") %>% source()
 here::here("scraper_functions.R") %>% source()
 
 
+
 # Define values -----------------------------------------------------------
 
 # strava access token

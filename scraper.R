@@ -64,7 +64,7 @@ for(strm in streams_to_get) {
     
 }
 
-# Calculate peak performances from new activities and append to DB
+# Calculate peak performances from new activities and append to database
 walk(streams_to_get, calculate_activity_peaks)
 
 # Calculate power summary

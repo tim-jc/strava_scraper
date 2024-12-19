@@ -18,6 +18,25 @@ purrr::walk(libs, ~library(.,character.only = T))
 
 source("scraper_functions.R")
 
+ytd_activities <- tbl(con, "activities") %>% 
+  collect() %>% 
+  filter(type == "Ride",
+         year(start_date_local) >= year(Sys.Date()))
+
+ytd_streams <- tbl(con, "streams") %>% 
+  filter(strava_id %in% local(ytd_activities$strava_id)) %>% 
+  collect()
+
+position_extremities <- ytd_streams %>% 
+  select(lat, lng) %>% 
+  mutate(extremity = case_when(lat == max(lat) ~ "N",
+                               lat == min(lat) ~ "S",
+                               lng == max(lng) ~ "E",
+                               lng == min(lng) ~ "W")) %>% 
+  filter(!is.na(extremity)) %>% 
+  mutate(city_name = map2_vec(lat, lng, ~get_city_name(.x, .y)))
+
+
 ```
 
 Summary
@@ -86,10 +105,37 @@ Map
 Row
 -----------------------------------------------------------------------
 
+### Most Northerly
+
+```{r}
+get_coord_valuebox("N")
+```
+
+### Most Southerly
+
+```{r}
+get_coord_valuebox("S")
+```
+
+### Most Easterly
+
+```{r}
+get_coord_valuebox("E")
+```
+
+### Most Westerly
+
+```{r}
+get_coord_valuebox("W")
+```
+
+Row
+-----------------------------------------------------------------------
+
 ### `r str_glue("{year(Sys.Date())} tracks")`
 
 ```{r}
-draw_ytd_map()
+draw_ytd_map(ytd_streams)
 ```
 
 

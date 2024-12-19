@@ -728,23 +728,47 @@ draw_map <- function(streams_tbl) {
   
 }
 
-draw_ytd_map <- function() {
+draw_ytd_map <- function(...) {
   
-  ytd_activities <- tbl(con, "activities") %>% 
-    collect() %>% 
-    filter(type == "Ride",
-           start_date_local >= floor_date(Sys.Date(), "year"))
-  
-  ytd_streams <- tbl(con, "streams") %>% 
-    filter(strava_id %in% local(ytd_activities$strava_id)) %>% 
-    collect()
-  
-  map <- draw_map(ytd_streams)
+  map <- draw_map(...)
   
   return(map)
   
 }
 
+get_city_name <- function(lat, lng) {
+  
+  city <- revgeo::revgeo(lng, lat, provider = "bing", API = "AmmKMFzPTOsRpX1M8orYkCmkTA_A-0q9UB980GE16xIY0mQ0UYYmX_IX49Hs_UqQ", output = "frame")
+  return(city$city)
+  
+}
+
+get_coord_valuebox <- function(pos_needed) {
+  
+  positions <- position_extremities %>% 
+    filter(extremity == pos_needed)
+  
+  if(pos_needed == "N") {
+    icon_str <- "fa-arrow-up"
+  }
+  
+  if(pos_needed == "S") {
+    icon_str <- "fa-arrow-down"
+  }
+  
+  if(pos_needed == "E") {
+    icon_str <- "fa-arrow-right"
+  }
+  
+  if(pos_needed == "W") {
+    icon_str <- "fa-arrow-left"
+  }
+  
+  link_str <- str_glue("https://www.google.com/maps/place/{positions$lat}N+{if_else(positions$lng>0,str_c(positions$lng,\"E\"),str_c(0 - positions$lng,\"W\"))}")
+  vb <- valueBox(positions$city_name, icon = icon_str, color = "#EDF0F1", href = link_str)
+  return(vb)
+  
+}
 
 # Publish / notify functions ----------------------------------------------
 

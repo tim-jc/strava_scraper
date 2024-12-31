@@ -51,7 +51,13 @@ Row
 valueBox(format(Sys.time(), "%d %b %y"), color = "#EDF0F1")
 ```
 
-### `r str_glue('Miles this year<br>({get_ytd_values("distance_mi")["pytd"]} pytd, {get_ytd_values("distance_mi")["pyr"]} py total)')`
+### `r str_glue('Miles this year<br>({get_ytd_values("distance_mi")["pytd"]} pytd)')`
+
+```{r}
+get_ytd_valuebox("ytd_distance_mi")
+```
+
+### `r str_glue('Projected miles this year<br>({get_ytd_values("distance_mi")["pyr"]} py)')`
 
 ```{r}
 get_ytd_valuebox("ytd_distance_mi")

@@ -749,7 +749,10 @@ get_coord_valuebox <- function(pos_needed) {
   
   positions <- position_extremities %>% 
     filter(extremity == pos_needed) %>% 
-    mutate(city_name = case_when(!is.na(village) ~ village,
+    mutate(city_name = case_when(!is.na(hamlet) ~ hamlet,
+                                 !is.na(village) ~ village,
+                                 !is.na(town) ~ town,
+                                 !is.na(neighbourhood) ~ neighbourhood,
                                  !is.na(suburb) ~ suburb,
                                  !is.na(city) ~ city)) %>% 
     slice_head(n = 1)

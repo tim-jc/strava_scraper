@@ -120,11 +120,7 @@ remove_activities <- function(activity_ids, con) {
   
   # ----- messaging -----
   
-  message(
-    glue::glue(
-      "Removed {length(activity_ids)} activit{ifelse(length(activity_ids) == 1, 'y', 'ies')} from database."
-    )
-  )
+  log_message(glue::glue("Removed {length(activity_ids)} activit{ifelse(length(activity_ids) == 1, 'y', 'ies')} from database."))
   
   print(deletion_summary)
   
@@ -132,15 +128,15 @@ remove_activities <- function(activity_ids, con) {
   
 }
 
-get_ftp_values <- function() {
+get_ftp_values <- function(con) {
   
-  ftp <- tbl(con, "ftp_history") %>%
-    collect() %>% 
-    mutate(ftp_from = ftp_date,
-           ftp_to = lead(ftp_date),
-           latest = ftp_from == max(ftp_from)) %>% 
-    replace_na(list(ftp_to = Sys.time())) %>% 
-    select(-ftp_id, -ftp_date)
+  ftp <- dplyr::tbl(con, "ftp_history") %>%
+    dplyr::collect() %>% 
+    dplyr::mutate(ftp_from = ftp_date,
+                  ftp_to = lead(ftp_date),
+                  latest = ftp_from == max(ftp_from)) %>% 
+    tidyr::replace_na(list(ftp_to = Sys.time())) %>% 
+    dplyr::select(-ftp_id, -ftp_date)
   
   return(ftp)
 
@@ -183,6 +179,7 @@ clean_stream_data <- function(stream, metrics_to_clean, gap_size_to_fill = 10) {
 }
 
 calculate_activity_peaks <- function(activity_id,
+                                     con,
                                      peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
                                      peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
   # Get activity data
@@ -305,7 +302,7 @@ calculate_activity_peaks <- function(activity_id,
   }
   
   # Notification of new FTP
-  ftp <- get_ftp_values() %>% 
+  ftp <- get_ftp_values(con) %>% 
     filter(latest) %>%
     pull(ftp)
   
@@ -327,11 +324,11 @@ calculate_activity_peaks <- function(activity_id,
   # Append to peaks table
   dbWriteTable(con, "peaks", peaks %>% filter(metric != "distance"), append = T)
   
-  str_glue("Peak efforts for activity {activity_id} appended to database.") %>% print()
+  log_message(glue::glue("Peak efforts for activity {activity_id} appended to database."))
   
 }
 
-calculate_power_summary <- function(activity_id) {
+calculate_power_summary <- function(activity_id, con) {
   
   power_summaries_loaded <- tbl(con, "power_summaries") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   
@@ -344,7 +341,7 @@ calculate_power_summary <- function(activity_id) {
   power_summary <- stream_cleaned %>%
     filter(moving) %>% 
     mutate(start_date_local = as.POSIXct(start_date_local)) %>% 
-    left_join(get_ftp_values(),
+    left_join(get_ftp_values(con),
               by = join_by(between(start_date_local, ftp_from, ftp_to))) %>% 
     group_by(strava_id, start_date_local, ftp, moving_time) %>% 
     mutate(mean_power_30s = slide_dbl(watts, .f = mean, .before = 29, .complete = T),
@@ -366,8 +363,7 @@ calculate_power_summary <- function(activity_id) {
   # Append to power summary table
   dbWriteTable(con, "power_summaries", power_summary, append = T)
 
-  str_glue("Power summary efforts for activity {activity_id} appended to database.") %>% print()
-  
+  log_message(glue::glue("Power summary efforts for activity {activity_id} appended to database."))
 }
 
 draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride") {
@@ -427,7 +423,7 @@ draw_bbox_map <- function(activity_bbox, draw_bbox = F, activity_types = "Ride")
 
 # Data quality functions --------------------------------------------------
 
-check_data_quality <- function() {
+check_data_quality <- function(con) {
   
   activities_loaded <- tbl(con, "activities") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
   streams_loaded <- tbl(con, "streams") %>% select(strava_id) %>% distinct() %>% pull(strava_id)
@@ -440,7 +436,7 @@ check_data_quality <- function() {
   awp <- activities_loaded[!activities_loaded %in% peaks_loaded]
   if(length(awp > 0)) {
     # attempt fix
-    walk(awp, calculate_activity_peaks)
+    walk(awp, calculate_activity_peaks, con = con)
     # Message
     awp <- str_glue("Activities without peaks: {str_flatten(awp, collapse = ',')}. Fix attempted.\n\n")
   } else {
@@ -455,7 +451,7 @@ check_data_quality <- function() {
   awps <- activities_loaded[!activities_loaded %in% c(power_summaries_loaded,non_ride_activities)]
   if(length(awps > 0)) {
     # Attempt fix
-    walk(awps, calculate_power_summary)
+    walk(awps, calculate_power_summary, con = con)
     # Message
     awps <- str_glue("Activities without power summaries: {str_flatten(awps, collapse = ',')}\n\n")
   } else {
@@ -646,7 +642,7 @@ find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location 
 
 # Visualisation functions -------------------------------------------------
 
-draw_critical_metric_curve <- function(metric_to_plot) {
+draw_critical_metric_curve <- function(metric_to_plot, con) {
   
   if(!metric_to_plot %in% peaks_units$display_name) {
     stop(str_glue("Invalid metric supplied; allowed values are '{str_flatten(peaks_units$display_name, collapse = \"', '\")}'"))
@@ -716,7 +712,7 @@ draw_critical_metric_curve <- function(metric_to_plot) {
   
 }
 
-draw_ytd_curve <- function(metric_to_plot) {
+draw_ytd_curve <- function(metric_to_plot, ytd_stats) {
   
   ytd_tbl <- ytd_stats %>% 
     pivot_longer(c(matches("^ytd"),-ytd_val)) %>% 
@@ -776,7 +772,7 @@ draw_ytd_curve <- function(metric_to_plot) {
   return(ytd_curve)
 }
 
-get_ytd_values <- function(metric_to_display) {
+get_ytd_values <- function(metric_to_display, ytd_stats) {
   
   vals <- ytd_stats %>%
     filter(ytd_val) %>% 
@@ -792,15 +788,27 @@ get_ytd_values <- function(metric_to_display) {
   
 }
 
-get_ytd_valuebox <- function(...) {
+get_ytd_valuebox <- function(
+    metric_to_display,
+    ytd_stats
+) {
   
-  vals <- get_ytd_values(...)
-
-  icon_str <- case_when(vals["ytd"] > vals["pytd"] ~ "fa-arrow-up",
-                        vals["ytd"] < vals["pytd"] ~ "fa-arrow-down",
-                        vals["ytd"] == vals["pytd"] ~ "fa-arrows-left-right")
+  vals <- get_ytd_values(
+    metric_to_display,
+    ytd_stats
+  )
   
-  valueBox(vals["ytd"], icon = icon_str, color = "#EDF0F1")
+  icon_str <- case_when(
+    vals["ytd"] > vals["pytd"] ~ "fa-arrow-up",
+    vals["ytd"] < vals["pytd"] ~ "fa-arrow-down",
+    vals["ytd"] == vals["pytd"] ~ "fa-arrows-left-right"
+  )
+  
+  valueBox(
+    vals["ytd"],
+    icon = icon_str,
+    color = "#EDF0F1"
+  )
 }
 
 draw_map <- function(streams_tbl) {

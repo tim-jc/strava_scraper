@@ -73,34 +73,34 @@ Row
 valueBox(format(Sys.time(), "%d %b %y"), color = "#EDF0F1")
 ```
 
-### `r str_glue('Miles this year<br>({get_ytd_values("distance_mi")["pytd"]} pytd)')`
+### `r str_glue('Miles this year<br>({get_ytd_values("distance_mi", ytd_stats)["pytd"]} pytd)')`
 
 ```{r}
-get_ytd_valuebox("ytd_distance_mi")
+get_ytd_valuebox("ytd_distance_mi", ytd_stats)
 ```
 
-### `r str_glue('Projected miles this year<br>({get_ytd_values("ytd_predicted_distance_mi")["pytd"]} pytd projected, {get_ytd_values("distance_mi")["pyr"]} py total)')`
+### `r str_glue('Projected miles this year<br>({get_ytd_values("ytd_predicted_distance_mi", ytd_stats)["pytd"]} pytd projected, {get_ytd_values("distance_mi", ytd_stats)["pyr"]} py total)')`
 
 ```{r}
-get_ytd_valuebox("ytd_predicted_distance_mi")
+get_ytd_valuebox("ytd_predicted_distance_mi", ytd_stats)
 ```
 
-### `r str_glue('Tons this year<br>({get_ytd_values("tons")["pytd"]} pytd, {get_ytd_values("tons")["pyr"]} py total)')`
+### `r str_glue('Tons this year<br>({get_ytd_values("tons", ytd_stats)["pytd"]} pytd, {get_ytd_values("tons", ytd_stats)["pyr"]} py total)')`
 
 ```{r}
-get_ytd_valuebox("ytd_tons")
+get_ytd_valuebox("ytd_tons", ytd_stats)
 ```
 
-### `r str_glue('Hours this year<br>({get_ytd_values("time_hr")["pytd"]} pytd, {get_ytd_values("time_hr")["pyr"]} py total)')`
+### `r str_glue('Hours this year<br>({get_ytd_values("time_hr", ytd_stats)["pytd"]} pytd, {get_ytd_values("time_hr", ytd_stats)["pyr"]} py total)')`
 
 ```{r}
-get_ytd_valuebox("ytd_time_hr")
+get_ytd_valuebox("ytd_time_hr", ytd_stats)
 ```
 
-### `r str_glue('Longest ride this year (mi)<br>({get_ytd_values("longest_ride")["pytd"]} pytd, {get_ytd_values("longest_ride")["pyr"]} py max)')`
+### `r str_glue('Longest ride this year (mi)<br>({get_ytd_values("longest_ride", ytd_stats)["pytd"]} pytd, {get_ytd_values("longest_ride", ytd_stats)["pyr"]} py max)')`
 
 ```{r}
-get_ytd_valuebox("ytd_longest_ride")
+get_ytd_valuebox("ytd_longest_ride", ytd_stats)
 ```
 
 Row 
@@ -109,13 +109,13 @@ Row
 ### `r str_glue("Miles (vs {year(Sys.Date()) - 1})")`
 
 ```{r}
-draw_ytd_curve("ytd_distance_mi")
+draw_ytd_curve("ytd_distance_mi", ytd_stats)
 ```
 
 ### `r str_glue("Tons (vs {year(Sys.Date()) - 1})")`
 
 ```{r}
-draw_ytd_curve("ytd_tons")
+draw_ytd_curve("ytd_tons", ytd_stats)
 ```
 
 Row 
@@ -124,7 +124,7 @@ Row
 ### Critical Power (vs all-time peaks)
 
 ```{r}
-draw_critical_metric_curve("power")
+draw_critical_metric_curve("power", con)
 ```
 
 Map
@@ -176,19 +176,19 @@ Row
 ### Power
 
 ```{r}
-draw_critical_metric_curve("power")
+draw_critical_metric_curve("power", con)
 ```
 
 ### Cadence
 
 ```{r}
-draw_critical_metric_curve("cadence")
+draw_critical_metric_curve("cadence", con)
 ```
 
 ### Heart Rate
 
 ```{r}
-draw_critical_metric_curve("heart rate")
+draw_critical_metric_curve("heart rate", con)
 ```
 
 tbr

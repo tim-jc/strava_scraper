@@ -2,21 +2,26 @@
 # retrieve new activities from Strava and 
 # add to MySQL database on RaspberryPi
 
-# clear memory ------------------------------------------------------------
+# clear environment -------------------------------------------------------
 
 rm(list = ls(all = TRUE))
 
+# project setup -----------------------------------------------------------
+
+here::i_am("scraper.R")
+
+# source runtime helpers --------------------------------------------------
+
+source(here::here("runtime_helpers.R"))
+
 # details for log file ----------------------------------------------------
 
-cat("\n=================================================\n")
-cat("SCRAPER START:", as.character(Sys.time()), "\n")
-cat("R VERSION:", R.version.string, "\n")
-cat("WORKING DIR:", getwd(), "\n")
-cat("HOME:", Sys.getenv("HOME"), "\n")
-cat("USER:", Sys.getenv("USER"), "\n")
-cat("RSTUDIO:", Sys.getenv("RSTUDIO"), "\n")
-cat("=================================================\n")
-flush.console()
+log_message("SCRAPER START")
+log_message(glue::glue("R VERSION: {R.version.string}"))
+log_message(glue::glue("WORKING DIR: {getwd()}"))
+log_message(glue::glue("HOME: {Sys.getenv(\"HOME\")}"))
+log_message(glue::glue("USER: {Sys.getenv(\"USER\")}"))
+log_message(glue::glue("RSTUDIO: {Sys.getenv(\"RSTUDIO\")}"))
 
 # runtime arguments -------------------------------------------------------
 
@@ -28,11 +33,7 @@ run_mode <- ifelse(
   "manual"
 )
 
-cat(glue::glue(
-  "RUN MODE: {run_mode}\n"
-))
-
-flush.console()
+log_message(glue::glue("RUN MODE: {run_mode}"))
 
 # libraries ---------------------------------------------------------------
 
@@ -44,11 +45,7 @@ library(glue)
 library(here)
 library(stravR)
 
-# project setup -----------------------------------------------------------
 
-setwd(normalizePath("~/Documents/Coding/R/Strava/strava_scraper"))
-
-here::i_am("scraper.R")
 
 # environment -------------------------------------------------------------
 
@@ -103,16 +100,16 @@ config <- list(
   
 )
 
-
-# source db functions -----------------------------------------------------
-
-here::here("db_helpers.R") %>% source()
-
 # database connection -----------------------------------------------------
 
-cat("Attempting DB connection...\n")
+log_message("Attempting DB connection...")
 
 con <- connect_to_db()
+
+on.exit(
+  DBI::dbDisconnect(con),
+  add = TRUE
+)
 
 # source main functions ---------------------------------------------------
 
@@ -121,10 +118,11 @@ here::here("scraper_functions.R") %>% source()
 # Define values -----------------------------------------------------------
 
 # strava access token
-stoken <- get_strava_token(app_name, app_client_id, app_secret)
-
-# Initial ntfy message
-ntfy_msg <- "No new activities"
+stoken <- get_strava_token(
+  config$strava$app_name,
+  config$strava$client_id,
+  config$strava$app_secret
+)
 
 # Get data ----------------------------------------------------------------
 
@@ -144,8 +142,14 @@ if(nrow(new_activities_to_load) > 0) {
   ntfy_msg <- str_glue(
     "{nrow(new_activities_to_load)} activit{if_else(nrow(new_activities_to_load) == 1,'y','ies')} loaded\n",
     "Run mode: {run_mode}\n",
-    "Completed: {Sys.time()}")
-  }
+    "Completed: {format(Sys.time(), \"%Y-%m-%d %H:%M:%S\")}")
+} else {
+  ntfy_msg <- str_glue(
+    "No new activities found\n",
+    "Run mode: {run_mode}\n",
+    "Completed: {format(Sys.time(), \"%Y-%m-%d %H:%M:%S\")}"
+  )
+}
 
 
 # Update streams and peaks ------------------------------------------------
@@ -157,19 +161,19 @@ for(strm in streams_to_get) {
 
   stream_to_load <- get_stream_data(activity_id = strm, strava_token = stoken, display_map = T)
   dbWriteTable(con, "streams", stream_to_load, append = T)
-  str_glue("Activity {strm} appended to database.") %>% print()
+  log_message(glue::glue("Activity {strm} appended to database."))
     
 }
 
 # Calculate peak performances from new activities and append to database
-walk(streams_to_get, calculate_activity_peaks)
+walk(streams_to_get, calculate_activity_peaks, con = con)
 
 # Calculate power summary
-walk(streams_to_get, calculate_power_summary)
+walk(streams_to_get, calculate_power_summary, con = con)
 
 # Data quality checks -----------------------------------------------------
 
-check_data_quality()
+check_data_quality(con)
 
 # Render and publish ------------------------------------------------------
 
@@ -184,10 +188,8 @@ send_ntfy_message(ntfy_msg)
 
 # Final messages for log
 
-cat("Disconnecting database connection...\n")
-flush.console()
+log_message("Disconnecting database connection...")
 
 DBI::dbDisconnect(con)
 
-cat("Scraper complete.\n")
-flush.console()
+log_message("Scraper complete.")

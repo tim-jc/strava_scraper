@@ -44,3 +44,20 @@ connect_to_db <- function(max_attempts = 5,
   stop("Unable to connect to database.")
   
 }
+
+log_message <- function(msg) {
+  
+  timestamp <- format(
+    Sys.time(),
+    "%Y-%m-%d %H:%M:%S"
+  )
+  
+  message(
+    glue::glue(
+      "[{timestamp}] {msg}"
+    )
+  )
+  
+  flush.console()
+  
+}

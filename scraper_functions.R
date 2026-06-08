@@ -69,6 +69,69 @@ ytd_stats <- tbl(con, "activities") %>%
 
 # Scraper functions -------------------------------------------------------
 
+# Remove activities and associated data from database
+remove_activities <- function(activity_ids, con) {
+  
+  # ----- validation -----
+  
+  stopifnot(
+    is.numeric(activity_ids),
+    length(activity_ids) > 0
+  )
+  
+  activity_ids <- unique(activity_ids)
+  
+  # ----- tables to clean -----
+  
+  tables_to_clean <- c(
+    "streams",
+    "peaks",
+    "power_summaries",
+    "activities"
+  )
+  
+  # ----- delete rows -----
+  
+  deletion_summary <- purrr::map_dfr(
+    tables_to_clean,
+    function(tbl_name) {
+      
+      rows_before <- dplyr::tbl(con, tbl_name) %>%
+        dplyr::filter(strava_id %in% activity_ids) %>%
+        dplyr::tally() %>%
+        dplyr::pull(n)
+      
+      delete_sql <- glue::glue(
+        "
+        DELETE FROM {`tbl_name`}
+        WHERE strava_id IN ({paste(activity_ids, collapse = ',')})
+        "
+      )
+      
+      DBI::dbExecute(con, delete_sql)
+      
+      tibble::tibble(
+        table_name = tbl_name,
+        rows_deleted = rows_before
+      )
+      
+    }
+  )
+  
+  # ----- messaging -----
+  
+  message(
+    glue::glue(
+      "Removed {length(activity_ids)} activit{ifelse(length(activity_ids) == 1, 'y', 'ies')} from database."
+    )
+  )
+  
+  print(deletion_summary)
+  
+  invisible(deletion_summary)
+  
+}
+
 get_ftp_values <- function() {
   
   ftp <- tbl(con, "ftp_history") %>%
@@ -123,19 +186,41 @@ calculate_activity_peaks <- function(activity_id,
                                      peaks_for = c("cadence", "heartrate", "watts", "velocity_smooth"),
                                      peak_time_ranges = c(5, 10, 12, 20, 30, 60, 120, 300, 360, 600, 720, 1200, 1800, 3600)) {
   # Get activity data
-  activities <- tbl(con, "activities") %>% collect()
+  activities <- tbl(con, "activities") %>%
+    select(strava_id, distance, start_date_local, sport_type) %>%
+    collect()
   
   # Get stream for activity
-  stream_sql <- tbl(con, "vw_streams") %>% 
-    filter(strava_id == activity_id) %>%
-    select(moving_time, moving, time, sport_type, all_of(peaks_for)) %>%
-    collect()
+  stream_sql <- dplyr::tbl(con, "streams") %>%
+    dplyr::inner_join(
+      dplyr::tbl(con, "activities") %>%
+        dplyr::select(
+          strava_id,
+          moving_time,
+          sport_type,
+          start_date_local
+        ),
+      by = "strava_id"
+    ) %>%
+    dplyr::filter(strava_id == activity_id) %>%
+    dplyr::mutate(
+      moving_time = moving_time,
+      sport_type = sport_type
+    ) %>%
+    dplyr::select(
+      moving_time,
+      moving,
+      time,
+      sport_type,
+      dplyr::all_of(peaks_for)
+    ) %>%
+    dplyr::collect()
   
   peak_time_ranges <- peak_time_ranges[peak_time_ranges <= max(stream_sql$moving_time)]
   
   # Get all time peaks
   # Calculate best ever and best this year
-  peaks_sql <- tbl(con, "vw_peaks") %>% 
+  peaks_sql <- tbl(con, "vw_training_peaks") %>% 
     filter(peak > 0) %>% 
     collect()
   
@@ -571,7 +656,7 @@ draw_critical_metric_curve <- function(metric_to_plot) {
   
   # Get all time peaks
   # Calculate best ever, best last year, best this year
-  peaks_all_time <- tbl(con, "vw_peaks") %>% 
+  peaks_all_time <- tbl(con, "vw_training_peaks") %>% 
     filter(metric == local(units$metric)) %>% 
     collect() %>% 
     mutate(peak_period = "All time")
@@ -808,19 +893,28 @@ send_ntfy_message <- function(msg_body,
   
 }
 
-publish_to_git <- function(git_path = here::here(),
-                           file_to_publish = "docs/index.html",
-                           commit_msg = "auto commit from cron / Rscript") {
+publish_to_git <- function(
+    git_path = here::here(),
+    file_to_publish = "docs/index.html",
+    commit_msg = "auto commit from cron / Rscript"
+) {
   
-  commit_str <- str_glue("cd {git_path} &&
-                          git add {file_to_publish} &&
-                          git commit -m '{commit_msg}'")
+  git_cmd <- stringr::str_glue(
+    "
+    cd '{git_path}' &&
+    git add '{file_to_publish}' &&
+    git commit -m '{commit_msg}' &&
+    git push origin main
+    "
+  )
   
-  push_str <- "git push -u origin main"
+  result <- system(
+    git_cmd,
+    intern = TRUE,
+    ignore.stderr = FALSE
+  )
   
-  system(commit_str)
-  
-  system(push_str)
+  print(result)
   
 }
 

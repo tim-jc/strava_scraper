@@ -8,6 +8,8 @@ rm(list = ls(all = TRUE))
 
 # project setup -----------------------------------------------------------
 
+setwd(normalizePath("~/Documents/Coding/R/Strava/strava_scraper"))
+
 here::i_am("scraper.R")
 
 # source runtime helpers --------------------------------------------------

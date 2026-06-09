@@ -507,7 +507,7 @@ check_data_quality <- function(con) {
 # activity ids so they can be daisy chained together. Simpler than having one mega function, and easier to build extra
 # filtering functionality later
 
-find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, start_years = NA, start_location = NA, min_distance = NA_real_) {
+find_rides_starting <- function(con, activity_bbox = list(NA, NA), start_dates = NA, start_years = NA, start_location = NA, min_distance = NA_real_) {
   
   # start_dates - vector of one or more dates
   # start_years - vector of one or more years
@@ -588,7 +588,7 @@ find_rides_starting <- function(activity_bbox = list(NA, NA), start_dates = NA, 
   
 }
 
-find_rides_visiting <- function(activity_bbox = list(NA, NA), visiting_location = NA) {
+find_rides_visiting <- function(con, activity_bbox = list(NA, NA), visiting_location = NA) {
   
   activity_id <- activity_bbox[[1]]
   prev_bbox <- activity_bbox[[2]]

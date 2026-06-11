@@ -92,6 +92,10 @@ config <- list(
     app_secret = Sys.getenv("STRAVA_APP_SECRET")
   ),
   
+  scraper = list(
+    schedule = Sys.getenv("SCRAPER_SCHEDULE")
+  ),
+  
   db = list(
     name = Sys.getenv("DB_NAME"),
     host = Sys.getenv("DB_HOST"),

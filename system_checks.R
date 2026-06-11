@@ -29,11 +29,8 @@ check_cron_schedule <- function() {
     cron_schedule
   )
   
-  if(!match) {
-    
-    log_message("Mismatch between cron and .Renviron schedule. Run install_cron_job() to reset to .Renviron values")
-    
-  }
+  if(!match) {log_message("Mismatch between cron and .Renviron schedule. Run install_cron_job() to reset to .Renviron values")}
   
+  return(match)
 
 }

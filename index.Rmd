@@ -17,6 +17,7 @@ libs <- c("flexdashboard","tidyverse","plotly","leaflet","leaflet.extras","DBI",
 purrr::walk(libs, ~library(.,character.only = T))
 
 source("scraper_functions.R")
+source("runtime_helpers.R")
 
 ytd_activities <- tbl(con, "activities") %>% 
   collect() %>% 
@@ -67,7 +68,8 @@ Summary
 Row
 -----------------------------------------------------------------------
 
-### `r str_glue('{format(Sys.time(), "%H:%M:%S")}<br>last refreshed')`
+### `r str_glue('Last refresh: {format(Sys.time(), "%H:%M")}<br>','Next refesh: {format(get_next_scraper_run(), "%H:%M")}'
+)`
 
 ```{r}
 valueBox(format(Sys.time(), "%d %b %y"), color = "#EDF0F1")

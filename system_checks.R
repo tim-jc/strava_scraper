@@ -24,9 +24,16 @@ check_cron_schedule <- function() {
   ) |>
     (\(x) paste(x[1:5], collapse = " "))()
 
-  identical(
+  match <- identical(
     environ_schedule,
     cron_schedule
   )
+  
+  if(!match) {
+    
+    log_message("Mismatch between cron and .Renviron schedule. Run install_cron_job() to reset to .Renviron values")
+    
+  }
+  
 
 }

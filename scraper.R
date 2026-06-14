@@ -48,7 +48,6 @@ library(here)
 library(stravR)
 
 
-
 # environment -------------------------------------------------------------
 
 # load environment variables

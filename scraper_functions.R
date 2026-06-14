@@ -474,16 +474,21 @@ check_data_quality <- function(con) {
     name = "date",
     value = "file_name"
   ) %>% mutate(date = str_extract(file_name, "\\d{4}-\\d{2}-\\d{2}"),
-               date = ymd(date),
-               backup_rank = row_number(desc(date)))
+               date = ymd(date)) %>% 
+    arrange(desc(date)) %>%
+    mutate(backup_rank = row_number())
   
   # Find most recent, warn if no backup for last 30 days
-  days_since_last_backup <- difftime(Sys.Date(), max(backup_files$date), units = "days") %>% as.numeric()
+  if (nrow(backup_files) == 0) {
+    dslb <- "No database backups found\n\n"
+  } else {
+    days_since_last_backup <- difftime(Sys.Date(), max(backup_files$date), units = "days") %>% as.numeric()
+  }
   
-  if(days_since_last_backup > 30) {dslb <- str_glue("No database backups for {days_since_last_backup} days\n\n")} else {dslb = ""}
+  if(days_since_last_backup > 15) {dslb <- str_glue("No database backups for {days_since_last_backup} days\n\n")} else {dslb = ""}
   
   # Clean up old backups, leaving most recent 3
-  backup_files_to_del <- backup_files %>% filter(backup_rank > 3)
+  backup_files_to_del <- backup_files %>% filter(backup_rank > 12)
   
   if(nrow(backup_files_to_del) > 0) { str_c(backup_path, backup_files_to_del$file_name) %>% walk(.f = file.remove) }
   
